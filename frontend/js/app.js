@@ -77,7 +77,7 @@ async function navigateTo(targetPageId, announcementText = null) {
   } else if (targetPageId === "qr-scan") {
     await autoStartQrCamera();
   } else if (targetPageId === "product-review") {
-    // Automatically focus the giant intended amount input
+    // Automatically focus the intended amount input
     setTimeout(() => $("intended-amount")?.focus(), 400);
   }
 }
@@ -119,7 +119,6 @@ async function autoStartProductCamera() {
     video.srcObject = stream;
     sound.playStep();
 
-    // Auto-capture countdown for blind user: after 4 seconds of holding steady, auto-snap
     announceState("Camera is looking for product label. Hold steady.", { soundCue: "step" });
 
     autoCaptureTimeout = setTimeout(() => {
@@ -142,7 +141,7 @@ async function processLabelFile(file) {
   try {
     const data = await readProductLabel(file);
     console.log("DrishtiPay label response:", data);
-    
+
     const getField = (f) => {
       const field = data[f];
       if (!field) return "";
@@ -156,17 +155,14 @@ async function processLabelFile(file) {
     const prodName = getField("product_name") || "Package";
     const expDate = getField("expiry_date") || "Not visible";
 
-    // Stop camera before navigating
     stopActiveCamera();
 
     const readoutMsg = cleanMrp
       ? `Found printed MRP of ${cleanMrp} rupees for ${prodName}. Tap top of screen to confirm, or enter your agreed amount.`
       : `Read product ${prodName}, but could not confirm a printed MRP. Enter the amount you intend to pay.`;
 
-    // First transition screen
     await navigateTo("product-review", readoutMsg);
 
-    // Then update all inputs and context elements
     if ($("product-name")) $("product-name").value = prodName;
     if ($("printed-mrp")) $("printed-mrp").value = cleanMrp ? `₹${cleanMrp}` : (rawMrpText || "Not visible");
     if ($("expiry-date")) $("expiry-date").value = expDate;
@@ -229,7 +225,6 @@ async function autoStartQrCamera() {
     sound.playStep();
     announceState(SpokenMessages.M10_QR_GUIDANCE, { soundCue: "step" });
 
-    // Live continuous QR detection via BarcodeDetector API
     if ("BarcodeDetector" in window) {
       const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
       scanTimer = setInterval(async () => {
@@ -320,10 +315,8 @@ function runVerification(rawQrText) {
 
 // Global Touch Gestures for Blind Navigation (2-finger tap = repeat)
 function initGlobalGestures() {
-  let touchCount = 0;
   window.addEventListener("touchstart", (e) => {
-    touchCount = e.touches.length;
-    if (touchCount === 2) {
+    if (e.touches.length === 2) {
       e.preventDefault();
       speech.repeatLast();
     }
@@ -350,34 +343,72 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Voice Command Button (Direct audio recording to Gemini STT)
+  // Voice Command Button (Native Web Speech with toggle state & graceful fallback)
   const voiceCmdBtn = $("voice-cmd-btn");
   voiceCmdBtn?.addEventListener("click", () => {
     sound.playStep();
-    speech.recordAudioCommand({
+
+    // If currently listening, stop it cleanly
+    if (speech.isListening) {
+      speech.stopListening();
+      voiceCmdBtn.textContent = "🎙 Speak Command";
+      voiceCmdBtn.setAttribute("aria-pressed", "false");
+      announceState("Voice listening stopped.", { soundCue: "step" });
+      return;
+    }
+
+    const started = speech.startListening({
       onStart: () => {
         voiceCmdBtn.textContent = "🔴 Listening... Speak now";
-        announceState("Listening for command. Speak now.", { soundCue: "step" });
+        voiceCmdBtn.setAttribute("aria-pressed", "true");
+        announceState("Listening for command. Say Start, Confirm, or an amount.", { soundCue: "step" });
       },
-      onTranscript: (res) => {
+      onResult: (transcript) => {
         voiceCmdBtn.textContent = "🎙 Speak Command";
-        if (res.text) {
-          announceState(`Heard: "${res.text}"`, { soundCue: "detected" });
-        }
-        if (res.amount_rupees && $("intended-amount")) {
-          $("intended-amount").value = res.amount_rupees;
-        }
+        voiceCmdBtn.setAttribute("aria-pressed", "false");
+        announceState(`Heard: "${transcript}"`, { soundCue: "detected" });
       },
-      onError: () => {
+      onError: (errInfo) => {
         voiceCmdBtn.textContent = "🎙 Speak Command";
-        announceState("Could not hear command. Please try again or tap the screen.", { soundCue: "alert" });
+        voiceCmdBtn.setAttribute("aria-pressed", "false");
+        announceState(errInfo.message || "Could not hear command. Please try again or tap buttons.", { soundCue: "alert" });
+      },
+      onEnd: () => {
+        voiceCmdBtn.textContent = "🎙 Speak Command";
+        voiceCmdBtn.setAttribute("aria-pressed", "false");
       }
     });
+
+    // If native speech recognition is not supported in this browser, fallback to audio recording
+    if (!started) {
+      console.warn("Native SpeechRecognition unavailable, trying media recording fallback...");
+      speech.recordAudioCommand({
+        onStart: () => {
+          voiceCmdBtn.textContent = "🔴 Recording... Speak now";
+          voiceCmdBtn.setAttribute("aria-pressed", "true");
+          announceState("Recording command. Speak now.", { soundCue: "step" });
+        },
+        onTranscript: (res) => {
+          voiceCmdBtn.textContent = "🎙 Speak Command";
+          voiceCmdBtn.setAttribute("aria-pressed", "false");
+          if (res.text) announceState(`Heard: "${res.text}"`, { soundCue: "detected" });
+          if (res.amount_rupees && $("intended-amount")) {
+            $("intended-amount").value = res.amount_rupees;
+          }
+        },
+        onError: () => {
+          voiceCmdBtn.textContent = "🎙 Speak Command";
+          voiceCmdBtn.setAttribute("aria-pressed", "false");
+          announceState("Could not hear command. Tap the screen to continue.", { soundCue: "alert" });
+        }
+      });
+    }
   });
 
   // Register command handlers for speech
   speech.registerActions({
     onStart: () => $("start-button")?.click(),
+    onDirectQr: () => $("direct-qr-button")?.click(),
     onConfirm: () => {
       const active = document.querySelector(".page.active")?.id;
       if (active === "welcome") $("start-button")?.click();
@@ -391,7 +422,14 @@ document.addEventListener("DOMContentLoaded", () => {
       announceState(SpokenMessages.M21_CANCELLED, { soundCue: "alert" });
       navigateTo("welcome");
     },
-    onRepeat: () => speech.repeatLast()
+    onRepeat: () => speech.repeatLast(),
+    onAmount: (rupees) => {
+      const intendedInput = $("intended-amount");
+      if (intendedInput) {
+        intendedInput.value = rupees;
+        announceState(`Amount set to ${rupees} rupees. Tap Confirm or say Confirm to proceed.`, { soundCue: "detected" });
+      }
+    }
   });
 
   // Step 1: Start Button
@@ -479,7 +517,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       flow.handoffOpened();
       announceState(SpokenMessages.M23_OPENING_UPI, { soundCue: "success" });
-      
+
       const raw = flow.ctx.confirmedQrRaw;
       if (raw && raw.toLowerCase().startsWith("upi://pay?")) {
         window.location.href = raw;

@@ -4,6 +4,49 @@ import { SpokenMessages } from "./messages.js";
 // Handbook Rule D17: Live regions first so TalkBack reads them without echo.
 // App voice (Web Speech API synthesis) is toggled explicitly by the user.
 
+// Helper: Extracts number/amount in rupees from spoken text (e.g., "35", "35 rupees", "thirty five")
+function extractAmountFromText(text) {
+  if (!text) return null;
+  const cleaned = text.toLowerCase().replace(/,/g, "").trim();
+
+  // 1. Check direct digits: e.g., "35", "₹35", "35 rupees", "40.50"
+  const numMatch = cleaned.match(/(?:(?:rs\.?|inr|₹|rupees?)\s*)?(\d+(?:\.\d{1,2})?)(?:\s*(?:rs\.?|inr|₹|rupees?))?/);
+  if (numMatch && numMatch[1]) {
+    const val = parseFloat(numMatch[1]);
+    if (!isNaN(val) && val > 0) return val;
+  }
+
+  // 2. Convert spoken word numbers (e.g., "thirty five", "one hundred fifty")
+  const wordMap = {
+    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+    ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+    seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+    sixty: 60, seventy: 70, eighty: 80, ninety: 90
+  };
+
+  const words = cleaned.replace(/[^a-z\s]/g, " ").split(/\s+/);
+  let total = 0;
+  let current = 0;
+  let found = false;
+
+  for (const w of words) {
+    if (wordMap[w] !== undefined) {
+      current += wordMap[w];
+      found = true;
+    } else if (w === "hundred") {
+      current = (current === 0 ? 1 : current) * 100;
+      found = true;
+    } else if (w === "thousand") {
+      current = (current === 0 ? 1 : current) * 1000;
+      total += current;
+      current = 0;
+      found = true;
+    }
+  }
+  total += current;
+  return found && total > 0 ? total : null;
+}
+
 class SpeechManager {
   constructor() {
     this.appVoiceEnabled = false;
@@ -12,15 +55,28 @@ class SpeechManager {
     this.lastSpoken = "";
     this.unclearCount = 0;
     this.silenceTimer = null;
+
+    this.activeCallbacks = {
+      onStart: null,
+      onResult: null,
+      onError: null,
+      onEnd: null
+    };
+
     this.handlers = {
       onConfirm: null,
       onCancel: null,
       onRepeat: null,
       onStart: null,
+      onDirectQr: null,
+      onAmount: null,
       onGeneral: null
     };
 
     this.synth = window.speechSynthesis || null;
+
+    // Automatically initialize recognition if available in browser
+    this.initRecognition();
   }
 
   setAppVoice(enabled) {
@@ -47,7 +103,7 @@ class SpeechManager {
       setTimeout(() => { politeRegion.textContent = text; }, 50);
     }
 
-    // App Voice Synthesis (only when enabled)
+    // App Voice Synthesis (only when explicitly enabled by user)
     if (this.appVoiceEnabled && speakWithSynth && this.synth) {
       this.synth.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -59,7 +115,6 @@ class SpeechManager {
       }
       this.synth.speak(utterance);
     } else if (onEnd) {
-      // If synth is off, trigger callback immediately
       setTimeout(onEnd, 100);
     }
   }
@@ -70,9 +125,10 @@ class SpeechManager {
     }
   }
 
-  initRecognition({ onResult, onError, onStart, onEnd } = {}) {
+  initRecognition() {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
+      console.warn("Native SpeechRecognition not supported in this browser.");
       return false;
     }
 
@@ -86,14 +142,15 @@ class SpeechManager {
       this.recognition.onstart = () => {
         this.isListening = true;
         this.armSilenceTimeout(12);
-        if (onStart) onStart();
+        if (this.activeCallbacks.onStart) this.activeCallbacks.onStart();
       };
 
       this.recognition.onresult = (event) => {
         this.disarmSilenceTimeout();
         this.isListening = false;
         const transcript = event.results[0]?.[0]?.transcript?.trim() || "";
-        if (onResult) onResult(transcript);
+        console.log("Speech transcript:", transcript);
+        if (this.activeCallbacks.onResult) this.activeCallbacks.onResult(transcript);
         this.handleCommand(transcript);
       };
 
@@ -103,7 +160,6 @@ class SpeechManager {
         const errorType = event.error || "unknown";
         console.warn("Speech recognition error:", errorType, event);
 
-        // Friendly error classification
         let userMsg = "";
         let isFatal = false;
 
@@ -114,29 +170,30 @@ class SpeechManager {
             isFatal = true;
             break;
           case "no-speech":
-            userMsg = "No speech detected. Press speak to try again or use the buttons.";
+            userMsg = "No speech detected. Tap Speak Command to try again.";
             break;
           case "network":
             userMsg = "Speech recognition network error. Chrome speech requires an internet connection.";
             break;
           case "audio-capture":
-            userMsg = "No microphone was found or microphone is busy.";
+            userMsg = "No microphone found or microphone is busy.";
             isFatal = true;
             break;
           case "aborted":
-            // Normal when aborted intentionally
             return;
           default:
-            userMsg = `Voice input error (${errorType}). You can use buttons and inputs.`;
+            userMsg = `Voice error (${errorType}). Please use touch buttons.`;
         }
 
-        if (onError) onError({ error: errorType, message: userMsg, isFatal });
+        if (this.activeCallbacks.onError) {
+          this.activeCallbacks.onError({ error: errorType, message: userMsg, isFatal });
+        }
       };
 
       this.recognition.onend = () => {
         this.isListening = false;
         this.disarmSilenceTimeout();
-        if (onEnd) onEnd();
+        if (this.activeCallbacks.onEnd) this.activeCallbacks.onEnd();
       };
 
       return true;
@@ -146,10 +203,16 @@ class SpeechManager {
     }
   }
 
-  listenOnce() {
-    if (!this.recognition) return;
+  // Starts native browser speech recognition
+  startListening({ onStart, onResult, onError, onEnd } = {}) {
+    if (!this.recognition) {
+      const initialized = this.initRecognition();
+      if (!initialized) return false;
+    }
 
-    // Stop synthesis before starting mic so microphone does not pick up synthesized speech
+    this.activeCallbacks = { onStart, onResult, onError, onEnd };
+
+    // Stop synthesis so mic doesn't hear synthetic audio
     if (this.synth && this.synth.speaking) {
       this.synth.cancel();
     }
@@ -158,75 +221,16 @@ class SpeechManager {
       this.recognition.abort();
     } catch {}
 
-    // Small delay to allow audio hardware channel to free up
     setTimeout(() => {
       try {
         this.recognition.start();
       } catch (e) {
         console.warn("Speech recognition start issue:", e);
+        if (onError) onError({ error: "start-failed", message: "Could not start microphone." });
       }
     }, 150);
-  }
 
-  // Dual engine: records audio chunk directly from mic and transcribes via backend Gemini
-  async recordAudioCommand({ onStart, onTranscript, onError } = {}) {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      if (onError) onError("Microphone API not supported on this browser.");
-      return;
-    }
-
-    try {
-      if (this.synth && this.synth.speaking) {
-        this.synth.cancel();
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      const audioChunks = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunks.push(e.data);
-      };
-
-      mediaRecorder.onstart = () => {
-        this.isListening = true;
-        if (onStart) onStart();
-      };
-
-      mediaRecorder.onstop = async () => {
-        this.isListening = false;
-        stream.getTracks().forEach(t => t.stop());
-        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-        
-        try {
-          const { transcribeVoiceAudio } = await import("./api.js");
-          const result = await transcribeVoiceAudio(audioBlob);
-          console.log("Audio transcribed via backend:", result);
-          if (onTranscript) onTranscript(result);
-          if (result.command) {
-            this.handleCommand(result.command);
-          } else if (result.text) {
-            this.handleCommand(result.text);
-          }
-        } catch (err) {
-          console.warn("Backend STT error:", err);
-          if (onError) onError(err);
-        }
-      };
-
-      mediaRecorder.start();
-
-      // Automatically capture a 3.5 second spoken utterance
-      setTimeout(() => {
-        if (mediaRecorder.state === "recording") {
-          mediaRecorder.stop();
-        }
-      }, 3500);
-
-    } catch (err) {
-      console.error("Audio recording error:", err);
-      if (onError) onError(err);
-    }
+    return true;
   }
 
   stopListening() {
@@ -257,34 +261,56 @@ class SpeechManager {
 
   handleCommand(text) {
     const lower = text.toLowerCase().trim();
-    
-    // Exact word lists per Section 10.3 / 13.1
-    const confirmWords = ["yes", "confirm", "proceed", "okay", "ok"];
-    const cancelWords = ["no", "cancel", "stop", "abort"];
 
-    if (confirmWords.some(w => lower.includes(w))) {
+    // 1. Confirm Commands
+    const confirmWords = ["yes", "confirm", "proceed", "okay", "ok", "continue", "pay"];
+    if (confirmWords.some(w => lower === w || lower.includes(w))) {
       this.unclearCount = 0;
       if (this.handlers.onConfirm) this.handlers.onConfirm(lower);
       return;
     }
 
-    if (cancelWords.some(w => lower.includes(w))) {
+    // 2. Cancel / Back Commands
+    const cancelWords = ["no", "cancel", "stop", "abort", "back"];
+    if (cancelWords.some(w => lower === w || lower.includes(w))) {
       this.unclearCount = 0;
       if (this.handlers.onCancel) this.handlers.onCancel(lower);
       return;
     }
 
+    // 3. Repeat Commands
     if (lower.includes("repeat") || lower.includes("say again")) {
       this.repeatLast();
       return;
     }
 
-    if (lower.includes("start") || lower.includes("shop")) {
+    // 4. Start Navigation Commands
+    if (lower.includes("start") || lower.includes("shop") || lower.includes("inspect") || lower.includes("begin")) {
       if (this.handlers.onStart) this.handlers.onStart();
       return;
     }
 
-    // Unclear response handling (Section 13.2 M19 / M20)
+    // 5. Direct QR Scan
+    if (lower.includes("direct qr") || lower.includes("scan qr") || lower.includes("skip label")) {
+      if (this.handlers.onDirectQr) this.handlers.onDirectQr();
+      return;
+    }
+
+    // 6. Check for spoken monetary amount (e.g., "35", "35 rupees", "fifty")
+    const extractedAmount = extractAmountFromText(lower);
+    if (extractedAmount !== null && this.handlers.onAmount) {
+      this.unclearCount = 0;
+      this.handlers.onAmount(extractedAmount, lower);
+      return;
+    }
+
+    // 7. General command fallback
+    if (this.handlers.onGeneral) {
+      this.handlers.onGeneral(lower);
+      return;
+    }
+
+    // 8. Unclear response handling
     this.unclearCount++;
     if (this.unclearCount === 1) {
       this.announce(SpokenMessages.M19_UNCLEAR_REPLY);
@@ -295,8 +321,68 @@ class SpeechManager {
     }
   }
 
-  registerActions({ onConfirm, onCancel, onRepeat, onStart, onGeneral }) {
-    this.handlers = { onConfirm, onCancel, onRepeat, onStart, onGeneral };
+  registerActions({ onConfirm, onCancel, onRepeat, onStart, onDirectQr, onAmount, onGeneral }) {
+    this.handlers = { onConfirm, onCancel, onRepeat, onStart, onDirectQr, onAmount, onGeneral };
+  }
+
+  // Fallback: direct audio recording to backend Gemini STT
+  async recordAudioCommand({ onStart, onTranscript, onError } = {}) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      if (onError) onError("Microphone API not supported on this browser.");
+      return;
+    }
+
+    try {
+      if (this.synth && this.synth.speaking) {
+        this.synth.cancel();
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      const audioChunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstart = () => {
+        this.isListening = true;
+        if (onStart) onStart();
+      };
+
+      mediaRecorder.onstop = async () => {
+        this.isListening = false;
+        stream.getTracks().forEach(t => t.stop());
+        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+
+        try {
+          const { transcribeVoiceAudio } = await import("./api.js");
+          const result = await transcribeVoiceAudio(audioBlob);
+          console.log("Audio transcribed via backend:", result);
+          if (onTranscript) onTranscript(result);
+          if (result.command) {
+            this.handleCommand(result.command);
+          } else if (result.text) {
+            this.handleCommand(result.text);
+          }
+        } catch (err) {
+          console.warn("Backend STT error:", err);
+          if (onError) onError(err);
+        }
+      };
+
+      mediaRecorder.start();
+
+      setTimeout(() => {
+        if (mediaRecorder.state === "recording") {
+          mediaRecorder.stop();
+        }
+      }, 3500);
+
+    } catch (err) {
+      console.error("Audio recording error:", err);
+      if (onError) onError(err);
+    }
   }
 }
 
