@@ -1,19 +1,38 @@
-DrishtiPay:
-An Hackloop S05 hackathon project
+# DrishtiPay
 
-Project Overview:
-DrishtiPay uses CV technology to help visualy impaired people to securely make shopping purchase and payment easier. We solve the trust for visually impaired people, it is done by detecting the product to verifing the price to making the payment to see if the payment is successfull. 
-this is not another UPI app but a extenstion to the UPI app of your choice (works for all upi app)
+An accessibility and transaction-verification prototype for the Hackloop S05 hackathon.
 
+> AI interprets. Deterministic code verifies. The user authorizes. The existing UPI app executes.
 
-Team:
-Team Lead: Shamanth Nayak
+DrishtiPay is not a payment processor. It does not collect a UPI PIN, authenticate a merchant, move money, or claim that a handoff completed a payment.
 
-Member 2: Naman D Shetty
+## Run the prototype
 
-Member 3: Prapthi Shetty
+This first prototype deliberately uses no third-party packages.
 
-Member 4: Vidhi Keshri
+```powershell
+npm start
+```
 
+Open `http://localhost:5173`. Run the safety-rule tests with:
 
-Technology Stack:
+```powershell
+npm test
+```
+
+## Demonstrate it
+
+1. Enter `35` as the intended amount.
+2. Choose **Try matching ₹35 QR**, then **Verify payment request**.
+3. Confirm the payee and amount, then enable **Open your UPI app**.
+4. Reset, choose **Try ₹350 mismatch**, and verify that handoff is blocked.
+5. Try the no-amount QR: it is explicitly reported as unverified.
+
+QR-image and live-camera scanning use the browser's native `BarcodeDetector` when available. A pasted UPI request is always provided as an accessible fallback. Product-label upload is a manual-review placeholder; connect it to the planned OCR service before claiming automatic price reading.
+
+## Team
+
+- Shamanth Nayak — frontend and integration
+- Naman D Shetty — QR parser and verification rules
+- Prapthi Shetty — label/OCR integration
+- Vidhi Keshri — accessibility, testing, and demo
