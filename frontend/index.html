@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0a1929" />
+  <title>DrishtiPay — Voice-First Pre-Payment Verification</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Accessibility Skip Link -->
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <!-- Top bar (minimal, accessible controls) -->
+  <header class="topbar">
+    <a class="brand" href="#welcome" aria-label="DrishtiPay Home">Drishti<span>Pay</span></a>
+    <div class="topbar-actions">
+      <button id="voice-cmd-btn" class="app-voice-btn" type="button" aria-label="Speak Voice Command">🎙 Speak Command</button>
+      <button id="voice-toggle" class="app-voice-btn" type="button" aria-pressed="false" aria-label="Toggle App Speech Synthesis">Turn on app voice</button>
+      <button class="btn-repeat quiet-button" type="button" aria-label="Repeat last message">Repeat</button>
+    </div>
+  </header>
+
+  <!-- Live Regions for Screen Readers (TalkBack / NVDA) -->
+  <div id="live-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="live-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+  <!-- Persistent Full-Screen Gesture Banner (for Blind Users) -->
+  <div id="gesture-hint" class="gesture-bar" role="note" aria-label="Gesture instructions">
+    <span>Tap top half to Confirm · Tap bottom half to Cancel · Tap anywhere with 2 fingers to Repeat</span>
+  </div>
+
+  <main id="main-content" class="shell" tabindex="-1">
+    <!-- Progress Indicator -->
+    <nav class="progress" aria-label="Verification Steps">
+      <span id="progress-label" aria-live="polite">Step 1 of 5: Welcome</span>
+      <div class="progress-track" aria-hidden="true"><i id="progress-bar"></i></div>
+    </nav>
+
+    <!-- STEP 1: WELCOME SCREEN (Autonomous start, giant buttons) -->
+    <section id="welcome" class="page active" aria-labelledby="welcome-title">
+      <p class="eyebrow">VOICE-FIRST PRE-PAYMENT ASSISTANT</p>
+      <h1 id="welcome-title">Know what you pay before you pay.</h1>
+      <p class="lead">DrishtiPay checks prices from product labels and verifies UPI QR codes so you never pay the wrong amount.</p>
+      
+      <!-- Split Screen Touch Zones (Massive targets for blind navigation) -->
+      <div class="split-zones">
+        <button id="start-button" class="giant-zone zone-confirm primary" type="button" aria-label="Start Inspecting Product. Tap top of screen.">
+          <span class="zone-title">START INSPECTING</span>
+          <span class="zone-sub">Tap top half of screen or say "Start"</span>
+        </button>
+
+        <button id="direct-qr-button" class="giant-zone zone-secondary" type="button" aria-label="Skip product and Scan Payment QR directly.">
+          <span class="zone-title">SCAN QR DIRECTLY</span>
+          <span class="zone-sub">Skip label and pay agreed amount</span>
+        </button>
+      </div>
+
+      <p id="voice-status" class="hint" role="status">Screen readers like TalkBack guide you continuously.</p>
+    </section>
+
+    <!-- STEP 2: AUTONOMOUS PRODUCT INSPECTION -->
+    <section id="product-scan" class="page" hidden aria-labelledby="product-scan-title">
+      <p class="eyebrow">STEP 2 · PRODUCT CAMERA</p>
+      <h1 id="product-scan-title">Hold Product In Front Of Camera</h1>
+      <p class="lead">Camera is on and auto-focusing. Hold the product label steady. It will automatically capture when ready.</p>
+      
+      <div class="camera-panel active-scanner">
+        <video id="product-camera" autoplay playsinline aria-label="Live product camera preview"></video>
+        <div class="scanner-aim" aria-hidden="true"></div>
+      </div>
+
+      <p id="product-scan-status" class="status-announcer" role="status">Aim camera at product label...</p>
+
+      <div class="split-zones compact-split">
+        <button id="manual-capture-btn" class="giant-zone zone-confirm primary" type="button">
+          <span class="zone-title">📸 CAPTURE NOW</span>
+          <span class="zone-sub">Tap here or hold steady for auto-capture</span>
+        </button>
+
+        <label class="giant-zone zone-secondary" for="product-file-input" style="cursor: pointer;">
+          <span class="zone-title">📁 UPLOAD IMAGE</span>
+          <span class="zone-sub">Choose label photo from device</span>
+          <input id="product-file-input" type="file" accept="image/*" style="display: none;" />
+        </label>
+
+        <button class="giant-zone zone-cancel secondary" data-next="product-review" type="button">
+          <span class="zone-title">SKIP CAMERA</span>
+          <span class="zone-sub">Enter amount manually</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 3: CONFIRM INTENDED AMOUNT -->
+    <section id="product-review" class="page" hidden aria-labelledby="product-review-title">
+      <p class="eyebrow">STEP 3 · AMOUNT CONFIRMATION</p>
+      <h1 id="product-review-title">Confirm Intended Amount</h1>
+      <p id="product-readout-lead" class="lead">Enter or confirm the amount you agreed to pay.</p>
+
+      <form id="product-form" novalidate>
+        <div class="amount-field-container">
+          <label for="intended-amount" class="big-label">Amount you intend to pay (₹):</label>
+          <div class="amount-input giant-input">
+            <span aria-hidden="true">₹</span>
+            <input id="intended-amount" required inputmode="decimal" autocomplete="off" aria-label="Amount you intend to pay in rupees" placeholder="0.00" />
+          </div>
+        </div>
+
+        <!-- Secondary read-only label context (optional) -->
+        <details class="context-details">
+          <summary>Label context read by AI (Printed MRP: <span id="mrp-preview-badge">none</span>)</summary>
+          <div class="label-context-grid">
+            <div><label for="product-name">Product:</label><input id="product-name" readonly /></div>
+            <div><label for="printed-mrp">Printed MRP:</label><input id="printed-mrp" readonly /></div>
+            <div><label for="expiry-date">Expiry:</label><input id="expiry-date" readonly /></div>
+          </div>
+        </details>
+
+        <div class="split-zones">
+          <button id="confirm-details" class="giant-zone zone-confirm primary" type="submit">
+            <span class="zone-title">CONFIRM AMOUNT</span>
+            <span class="zone-sub">Tap top half to proceed to QR scan</span>
+          </button>
+          
+          <button class="btn-cancel giant-zone zone-cancel secondary" type="button">
+            <span class="zone-title">CANCEL / GO BACK</span>
+            <span class="zone-sub">Tap bottom half to start over</span>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- STEP 4: AUTONOMOUS PAYMENT QR SCAN -->
+    <section id="qr-scan" class="page" hidden aria-labelledby="qr-scan-title">
+      <p class="eyebrow">STEP 4 · MERCHANT QR CAMERA</p>
+      <h1 id="qr-scan-title">Point Camera At Payment QR</h1>
+      <p class="lead">Camera is live and scanning automatically. As soon as the merchant's QR is in view, it will beep and verify.</p>
+
+      <div class="camera-panel active-scanner">
+        <video id="qr-camera" autoplay playsinline aria-label="Live QR scanner preview"></video>
+        <div class="scanner-aim" aria-hidden="true"></div>
+      </div>
+
+      <p id="qr-scan-status" class="status-announcer" role="status">Searching for merchant UPI QR...</p>
+
+      <!-- Minimal fallback if camera is impossible -->
+      <details class="manual-fallback-details">
+        <summary>Manual entry or test QR</summary>
+        <textarea id="qr-text" rows="2" placeholder="upi://pay?pa=merchant@bank&am=35.00"></textarea>
+        <button id="verify-button" class="secondary" type="button">Verify pasted text</button>
+      </details>
+
+      <div class="page-nav">
+        <button class="btn-cancel back-button giant-zone zone-cancel secondary" type="button">
+          <span class="zone-title">CANCEL SCAN</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 5: VERIFICATION RESULT -->
+    <section id="verification" class="page" hidden aria-labelledby="verification-title">
+      <p class="eyebrow">STEP 5 · VERIFICATION RESULT</p>
+      <h1 id="verification-title">Amount Verification</h1>
+      
+      <div id="result" class="result neutral" role="region" aria-live="assertive">
+        <strong>Awaiting Verification</strong>
+        <p>No QR has been verified yet.</p>
+      </div>
+
+      <dl id="qr-summary" class="summary" hidden></dl>
+
+      <div class="split-zones">
+        <button id="payment-consent-button" class="giant-zone zone-confirm primary" type="button" hidden>
+          <span class="zone-title">PROCEED TO PAY</span>
+          <span class="zone-sub">Tap top half to review UPI handoff</span>
+        </button>
+
+        <button class="btn-cancel giant-zone zone-cancel secondary" type="button">
+          <span class="zone-title">REJECT / CANCEL</span>
+          <span class="zone-sub">Tap bottom half to stop</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 6: PAYMENT CONSENT & HANDOFF (Split Screen Touch Zones) -->
+    <section id="payment-consent" class="page" hidden aria-labelledby="consent-title">
+      <p class="eyebrow">STEP 6 · FINAL CONSENT</p>
+      <h1 id="consent-title">Open Your UPI App?</h1>
+      
+      <div class="notice">
+        <strong>Amount verified.</strong>
+        <p>Always verify the merchant name on your UPI screen before typing your PIN.</p>
+      </div>
+
+      <p id="payee-summary" class="summary-text" aria-live="polite"></p>
+
+      <div class="split-zones">
+        <button id="upi-link" class="giant-zone zone-confirm primary" type="button">
+          <span class="zone-title">OPEN UPI APP</span>
+          <span class="zone-sub">Tap top half of screen</span>
+        </button>
+
+        <button id="cancel-consent-button" class="btn-cancel giant-zone zone-cancel secondary" type="button">
+          <span class="zone-title">CANCEL PAYMENT</span>
+          <span class="zone-sub">Tap bottom half of screen to abort</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 7: OUTCOME REPORT -->
+    <section id="outcome-report" class="page" hidden aria-labelledby="outcome-title">
+      <p class="eyebrow">TRANSACTION FINISHED</p>
+      <h1 id="outcome-title">Did payment complete?</h1>
+      
+      <div class="split-zones">
+        <button class="giant-zone zone-confirm primary" type="button" data-outcome="paid">
+          <span class="zone-title">YES, COMPLETED</span>
+          <span class="zone-sub">Tap top half of screen</span>
+        </button>
+
+        <button class="giant-zone zone-cancel secondary" type="button" data-outcome="failed">
+          <span class="zone-title">NO / CANCELLED</span>
+          <span class="zone-sub">Tap bottom half of screen</span>
+        </button>
+      </div>
+
+      <p id="outcome-status" class="hint" role="status"></p>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
