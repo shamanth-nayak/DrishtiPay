@@ -11,6 +11,12 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import BaseModel, Field, ValidationError, model_validator
+from verification import (
+    VerificationRequest,
+    VerificationResponse,
+    verify_transaction,
+)
+
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -251,4 +257,13 @@ Respond with JSON matching this structure:
     logger.warning("All audio transcription models exhausted: %s", last_error)
     raise HTTPException(status_code=502, detail="Voice transcription currently unavailable across model pool.")
 
+
+@app.post(
+    "/api/v1/verification/verify",
+    response_model=VerificationResponse,
+)
+def verify_payment_details(
+    request: VerificationRequest,
+) -> VerificationResponse:
+    return verify_transaction(request)
 
