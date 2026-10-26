@@ -51,50 +51,93 @@ export function formatPaise(paise) {
 
 export function parseUpiRequest(rawText) {
   try {
-    const url = new URL(String(rawText).trim());
-    if (url.protocol !== "upi:" || url.hostname !== "pay") {
-      return { isValid: false, error: "This is not a supported UPI payment request." };
+    const raw = String(rawText || "").trim();
+    if (!raw) return { isValid: false, error: "Enter or scan a UPI payment QR code first." };
+    const url = new URL(raw);
+    if (url.protocol.toLowerCase() !== "upi:" || url.hostname.toLowerCase() !== "pay") {
+      return { isValid: false, error: "Unsupported QR code. Please scan a UPI payment QR code." };
     }
-    const payeeVpa = url.searchParams.get("pa")?.trim();
-    if (!payeeVpa || !payeeVpa.includes("@")) {
-      return { isValid: false, error: "The UPI request does not contain a valid payee address." };
+    const params = url.searchParams;
+    for (const key of ["pa", "am", "cu"]) {
+      if (params.getAll(key).length > 1) {
+        return { isValid: false, error: `The QR code contains duplicate ${key} fields. Do not continue.` };
+      }
     }
-    const currency = (url.searchParams.get("cu") || "INR").toUpperCase();
+    const payeeVpa = params.get("pa")?.trim();
+    if (!payeeVpa || !/^[A-Za-z0-9._-]{2,256}@[A-Za-z0-9.-]{2,64}$/.test(payeeVpa)) {
+      return { isValid: false, error: "The QR code does not contain a recognisable UPI ID." };
+    }
+    const currency = (params.get("cu") || "INR").toUpperCase();
     if (currency !== "INR") {
-      return { isValid: false, error: "Only INR UPI requests are supported in this prototype." };
+      return { isValid: false, error: `Unsupported currency ${currency}. Only INR is supported.` };
     }
-    const rawAmount = url.searchParams.get("am");
-    const amountPaise = rawAmount === null || rawAmount === "" ? null : parseRupeesToPaise(rawAmount);
-    if (rawAmount !== null && amountPaise === null) {
-      return { isValid: false, error: "The amount encoded in this QR could not be read safely." };
+    const rawAmount = params.get("am");
+    let amountPaise = null;
+    if (rawAmount !== null && rawAmount.trim() !== "") {
+      amountPaise = parseRupeesToPaise(rawAmount.trim());
+      if (amountPaise === null) {
+        return { isValid: false, error: "The QR code contains an invalid payment amount." };
+      }
     }
     return {
       isValid: true,
-      rawText: String(rawText).trim(),
+      rawText: raw,
       payeeVpa,
-      payeeName: url.searchParams.get("pn")?.trim() || null,
+      payeeName: params.get("pn")?.trim() || "Name not provided in QR",
       amountPaise,
-      currency
+      currency,
+      note: params.get("tn")?.trim() || ""
     };
   } catch {
-    return { isValid: false, error: "This QR text could not be parsed as a UPI request." };
+    return { isValid: false, error: "This does not look like a valid UPI payment link." };
   }
 }
 
 export function verifyAmounts(intendedPaise, parsedQr) {
   if (!Number.isInteger(intendedPaise)) {
-    return { status: VerificationStatus.INTENDED_AMOUNT_MISSING, mayOfferUpiHandoff: false, message: "Please enter or confirm the amount you intend to pay." };
+    return {
+      status: VerificationStatus.INTENDED_AMOUNT_MISSING,
+      mayOfferUpiHandoff: false,
+      confirmationsRequired: 0,
+      message: "Please enter or confirm the amount you intend to pay."
+    };
   }
   if (!parsedQr?.isValid) {
-    return { status: VerificationStatus.QR_INVALID, mayOfferUpiHandoff: false, message: "This is not a valid supported UPI payment request. Payment has not been opened." };
+    return {
+      status: VerificationStatus.QR_INVALID,
+      mayOfferUpiHandoff: false,
+      confirmationsRequired: 0,
+      message: parsedQr?.error || "This is not a valid supported UPI payment request. Payment has not been opened."
+    };
   }
   if (!Number.isInteger(parsedQr.amountPaise)) {
-    return { status: VerificationStatus.QR_AMOUNT_MISSING, mayOfferUpiHandoff: false, message: "This QR has no fixed amount. DrishtiPay cannot verify the amount, so payment has not been opened." };
+    return {
+      status: VerificationStatus.QR_AMOUNT_MISSING,
+      mayOfferUpiHandoff: false,
+      confirmationsRequired: 2,
+      intendedPaise,
+      qrPaise: null,
+      message: `The QR has no fixed amount. Your intended amount is ${formatPaise(intendedPaise)}. You must check the amount in your UPI app yourself.`
+    };
   }
   if (intendedPaise !== parsedQr.amountPaise) {
-    return { status: VerificationStatus.MISMATCH_BLOCKED, mayOfferUpiHandoff: false, message: `The QR requests ${formatPaise(parsedQr.amountPaise)}. You said ${formatPaise(intendedPaise)}. The amounts do not match. Payment has not been opened.` };
+    return {
+      status: VerificationStatus.MISMATCH_BLOCKED,
+      mayOfferUpiHandoff: false,
+      confirmationsRequired: 0,
+      intendedPaise,
+      qrPaise: parsedQr.amountPaise,
+      message: `Amount mismatch: you intend to pay ${formatPaise(intendedPaise)}, but the QR requests ${formatPaise(parsedQr.amountPaise)}. Payment handoff is blocked.`
+    };
   }
-  return { status: VerificationStatus.MATCH_NEEDS_CONFIRMATION, mayOfferUpiHandoff: true, message: `The amounts match at ${formatPaise(intendedPaise)}. Please confirm the payee and amount before opening your UPI app.` };
+  return {
+    status: VerificationStatus.MATCH_NEEDS_CONFIRMATION,
+    mayOfferUpiHandoff: true,
+    confirmationsRequired: 1,
+    intendedPaise,
+    qrPaise: parsedQr.amountPaise,
+    message: `The amounts match at ${formatPaise(intendedPaise)}. Please confirm the payee and amount before opening your UPI app.`
+  };
 }
 
 export function createSafeUpiLink(parsedQr) {

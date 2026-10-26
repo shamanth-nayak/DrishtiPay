@@ -111,15 +111,18 @@ export class FlowMachine {
     this.ctx.confirmations = 0;
 
     switch (verifyResult.status) {
+      case "MATCH":
       case "MATCH_NEEDS_CONFIRMATION":
         this.phase = FlowPhase.RESULT_MATCH;
         break;
       case "MISMATCH":
+      case "MISMATCH_BLOCKED":
         this.phase = FlowPhase.RESULT_MISMATCH;
         break;
       case "QR_AMOUNT_MISSING":
         this.phase = FlowPhase.RESULT_QR_AMOUNT_MISSING;
         break;
+      case "QR_INVALID":
       case "INVALID_OR_UNSUPPORTED_REQUEST":
         this.phase = FlowPhase.RESULT_INVALID_OR_UNSUPPORTED;
         break;

@@ -13,6 +13,8 @@ let activeStream = null;
 let scanTimer = null;
 let autoCaptureTimeout = null;
 let latestQr = null;
+let zxingControls = null;
+let zxingReader = null;
 
 // Speech and Sound Feedback
 function announceState(text, { assertive = false, soundCue = null } = {}) {
@@ -84,6 +86,10 @@ async function navigateTo(targetPageId, announcementText = null) {
 
 // Stop any camera stream and clear timers
 function stopActiveCamera() {
+  if (zxingControls) {
+    try { zxingControls.stop(); } catch {}
+    zxingControls = null;
+  }
   if (scanTimer) {
     clearInterval(scanTimer);
     scanTimer = null;
@@ -131,8 +137,18 @@ async function autoStartProductCamera() {
   }
 }
 
+let isProcessingLabel = false;
+
 // Process any label file (camera snapshot or uploaded image)
 async function processLabelFile(file) {
+  if (isProcessingLabel) return;
+  isProcessingLabel = true;
+
+  if (autoCaptureTimeout) {
+    clearTimeout(autoCaptureTimeout);
+    autoCaptureTimeout = null;
+  }
+  stopActiveCamera();
   const statusEl = $("product-scan-status");
   sound.playDetected();
   if (statusEl) statusEl.textContent = "Analyzing label image with AI...";
@@ -143,10 +159,16 @@ async function processLabelFile(file) {
     console.log("DrishtiPay label response:", data);
 
     const getField = (f) => {
-      const field = data[f];
+      const field = data?.[f];
       if (!field) return "";
-      if (typeof field.value === "string" && field.value.trim() && field.value.toLowerCase() !== "null") return field.value.trim();
-      if (typeof field.supporting_text === "string" && field.supporting_text.trim() && field.supporting_text.toLowerCase() !== "null") return field.supporting_text.trim();
+      if (field.value !== null && field.value !== undefined) {
+        const valStr = String(field.value).trim();
+        if (valStr && valStr.toLowerCase() !== "null") return valStr;
+      }
+      if (field.supporting_text !== null && field.supporting_text !== undefined) {
+        const supStr = String(field.supporting_text).trim();
+        if (supStr && supStr.toLowerCase() !== "null") return supStr;
+      }
       return "";
     };
 
@@ -182,12 +204,21 @@ async function processLabelFile(file) {
   } catch (err) {
     console.warn("OCR read error:", err);
     stopActiveCamera();
-    navigateTo("product-review", "Could not read label automatically. Enter your intended payment amount.");
+    if (statusEl) {
+      statusEl.textContent = `Could not read label: ${err.message}.`;
+    }
+    announceState(`Could not read label automatically: ${err.message}. Enter your intended payment amount.`, { soundCue: "alert" });
+    await navigateTo("product-review", "Could not read label automatically. Enter your intended payment amount.");
+  } finally {
+    isProcessingLabel = false;
+    const fi = $("product-file-input");
+    if (fi) fi.value = "";
   }
 }
 
 // Capture photo from video stream
 function triggerProductCapture() {
+  if (isProcessingLabel) return;
   const video = $("product-camera");
 
   if (!activeStream || !video || video.videoWidth < 1) {
@@ -207,13 +238,40 @@ function triggerProductCapture() {
   }, "image/jpeg", 0.92);
 }
 
-// Step 4: Auto-Starting Merchant QR Scanner
+// Step 4: Auto-Starting Merchant QR Scanner with ZXing
 async function autoStartQrCamera() {
   const video = $("qr-camera");
   const statusEl = $("qr-scan-status");
   if (statusEl) statusEl.textContent = "Camera live. Aiming for shop's UPI QR...";
 
   try {
+    // 1. Primary: Use ZXing Browser for universal cross-platform camera QR scanning
+    if (window.ZXingBrowser && window.ZXingBrowser.BrowserQRCodeReader) {
+      if (!zxingReader) {
+        zxingReader = new window.ZXingBrowser.BrowserQRCodeReader();
+      }
+      sound.playStep();
+      announceState(SpokenMessages.M10_QR_GUIDANCE, { soundCue: "step" });
+
+      try {
+        let found = false;
+        zxingControls = await zxingReader.decodeFromVideoDevice(undefined, video, (result) => {
+          if (result && !found) {
+            found = true;
+            const raw = result.getText().trim();
+            stopActiveCamera();
+            if ($("qr-text")) $("qr-text").value = raw;
+            sound.playDetected();
+            runVerification(raw);
+          }
+        });
+        return;
+      } catch (zxErr) {
+        console.warn("ZXing device scan error, falling back to manual getUserMedia:", zxErr);
+      }
+    }
+
+    // 2. Fallback: getUserMedia stream with BarcodeDetector
     const stream = await navigator.mediaDevices?.getUserMedia({
       video: { facingMode: { ideal: "environment" } },
       audio: false
@@ -234,18 +292,18 @@ async function autoStartQrCamera() {
           if (codes.length > 0 && codes[0].rawValue) {
             const raw = codes[0].rawValue.trim();
             stopActiveCamera();
-            $("qr-text").value = raw;
+            if ($("qr-text")) $("qr-text").value = raw;
             sound.playDetected();
-            announceState("Payment QR detected. Verifying amount.", { soundCue: "detected" });
             runVerification(raw);
           }
         } catch {}
       }, 400);
     } else {
-      if (statusEl) statusEl.textContent = "Live QR scan unavailable. Paste UPI request in fallback below.";
+      if (statusEl) statusEl.textContent = "Point camera at merchant QR code, or paste the UPI link below.";
     }
   } catch (err) {
     console.error("QR Camera access:", err);
+    if (statusEl) statusEl.textContent = "Camera unavailable. Paste UPI payment link below.";
     announceState(SpokenMessages.M02_CAMERA_DENIED, { assertive: true, soundCue: "alert" });
   }
 }
@@ -258,7 +316,7 @@ function runVerification(rawQrText) {
     return;
   }
 
-  const intended = parseRupeesToPaise($("intended-amount").value);
+  const intended = parseRupeesToPaise($("intended-amount")?.value);
   if (!Number.isInteger(intended)) {
     announceState(SpokenMessages.M08_INTENDED_REQUEST, { assertive: true, soundCue: "alert" });
     navigateTo("product-review");
@@ -274,40 +332,68 @@ function runVerification(rawQrText) {
 
   const parsed = parseUpiRequest(raw);
   latestQr = parsed;
-  const verified = verifyAmounts(intended, parsed);
-  flow.verificationReceived(verified);
 
   const resultContainer = $("result");
   const summary = $("qr-summary");
   const proceedBtn = $("payment-consent-button");
 
-  if (parsed.isValid) {
+  if (!parsed.isValid) {
+    if (summary) summary.hidden = true;
+    if (resultContainer) {
+      resultContainer.className = "result mismatch";
+      resultContainer.innerHTML = `<strong>UNSUPPORTED QR</strong><p>${parsed.error}</p>`;
+    }
+    if (proceedBtn) proceedBtn.hidden = true;
+    announceState(`Unsupported QR: ${parsed.error}. Payment handoff is blocked.`, { assertive: true, soundCue: "alert" });
+    navigateTo("verification");
+    return;
+  }
+
+  const verified = verifyAmounts(intended, parsed);
+  flow.verificationReceived(verified);
+
+  const payeeNameStr = parsed.payeeName || "Name not provided in QR";
+  const qrAmountStr = Number.isInteger(parsed.amountPaise) ? formatPaise(parsed.amountPaise) : "No fixed amount";
+  const qrReadout = `Payee: ${payeeNameStr}. UPI ID: ${parsed.payeeVpa}. QR amount: ${qrAmountStr}.`;
+
+  if (summary) {
     summary.hidden = false;
     summary.innerHTML = `
-      <dt>Payee</dt><dd>${parsed.payeeName || "Unverified Name"}</dd>
-      <dt>UPI Address</dt><dd>${parsed.payeeVpa}</dd>
-      <dt>QR Amount</dt><dd>${Number.isInteger(parsed.amountPaise) ? formatPaise(parsed.amountPaise) : "No fixed amount"}</dd>
+      <dt>Payee</dt><dd>${payeeNameStr}</dd>
+      <dt>UPI ID</dt><dd>${parsed.payeeVpa}</dd>
+      <dt>QR Amount</dt><dd>${qrAmountStr}</dd>
+      <dt>Intended Amount</dt><dd>${formatPaise(intended)}</dd>
     `;
-  } else {
-    summary.hidden = true;
   }
 
   if (verified.status === VerificationStatus.MATCH_NEEDS_CONFIRMATION) {
     resultContainer.className = "result match";
-    resultContainer.innerHTML = `<strong>AMOUNTS MATCH</strong><p>${verified.message}</p>`;
-    if (proceedBtn) proceedBtn.hidden = false;
-    announceState(verified.message, { soundCue: "success" });
+    resultContainer.innerHTML = `<strong>AMOUNTS MATCH</strong><p>${verified.message}</p><p class="hint">1 explicit confirmation required before opening UPI app.</p>`;
+    if (proceedBtn) {
+      proceedBtn.hidden = false;
+      const t = proceedBtn.querySelector(".zone-title");
+      const s = proceedBtn.querySelector(".zone-sub");
+      if (t) t.textContent = "CONFIRM (1 OF 1)";
+      if (s) s.textContent = "Tap top half to review and proceed";
+    }
+    announceState(`${qrReadout} ${verified.message}. Tap top half to confirm.`, { soundCue: "success" });
   } else if (verified.status === VerificationStatus.QR_AMOUNT_MISSING) {
     resultContainer.className = "result warning";
-    resultContainer.innerHTML = `<strong>UNVERIFIED AMOUNT</strong><p>${verified.message}</p>`;
-    if (proceedBtn) proceedBtn.hidden = false;
-    announceState(verified.message, { soundCue: "alert" });
+    resultContainer.innerHTML = `<strong>UNVERIFIED QR AMOUNT</strong><p>${verified.message}</p><p class="hint">Two explicit confirmations required before handoff.</p>`;
+    if (proceedBtn) {
+      proceedBtn.hidden = false;
+      const t = proceedBtn.querySelector(".zone-title");
+      const s = proceedBtn.querySelector(".zone-sub");
+      if (t) t.textContent = "CONFIRM (1 OF 2)";
+      if (s) s.textContent = "Tap top half to confirm you will check amount in UPI app";
+    }
+    announceState(`${qrReadout} WARNING: This QR has no fixed amount. You must check the amount in your UPI app. Two confirmations required.`, { soundCue: "alert" });
   } else {
-    // Mismatch or unusable QR: strictly blocked!
+    // MISMATCH_BLOCKED
     resultContainer.className = "result mismatch";
-    resultContainer.innerHTML = `<strong>PAYMENT BLOCKED</strong><p>${verified.message}</p>`;
+    resultContainer.innerHTML = `<strong>PAYMENT BLOCKED - AMOUNT MISMATCH</strong><p>${verified.message}</p><p class="hint">Payment handoff is blocked. Scan again or ask the shopkeeper.</p>`;
     if (proceedBtn) proceedBtn.hidden = true;
-    announceState(verified.message, { assertive: true, soundCue: "alert" });
+    announceState(`${qrReadout} ${verified.message}`, { assertive: true, soundCue: "alert" });
   }
 
   navigateTo("verification");
@@ -450,7 +536,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Step 2: Product Image File Upload
   const fileInput = $("product-file-input");
-  const uploadLabel = fileInput?.closest("label");
+  const uploadLabel = document.querySelector('label[for="product-file-input"]');
 
   const cancelAutoOnUpload = () => {
     if (autoCaptureTimeout) {
@@ -459,7 +545,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     stopActiveCamera();
     const statusEl = $("product-scan-status");
-    if (statusEl) statusEl.textContent = "Camera paused. Select your label image...";
+    if (statusEl) statusEl.textContent = "Camera paused. Select your label photo...";
   };
 
   uploadLabel?.addEventListener("click", cancelAutoOnUpload);
@@ -495,22 +581,60 @@ document.addEventListener("DOMContentLoaded", () => {
   // Manual QR input fallback button
   $("verify-button")?.addEventListener("click", () => runVerification());
 
-  // Step 5: Verification Proceed
+  // Demo QR Buttons
+  $("demo-qr-btn")?.addEventListener("click", () => {
+    const demo = "upi://pay?pa=demo.merchant@upi&pn=Demo%20Merchant&am=35.00&cu=INR";
+    if ($("qr-text")) $("qr-text").value = demo;
+    runVerification(demo);
+  });
+
+  $("demo-noamt-qr-btn")?.addEventListener("click", () => {
+    const demo = "upi://pay?pa=demo.merchant@upi&pn=Demo%20Merchant&cu=INR";
+    if ($("qr-text")) $("qr-text").value = demo;
+    runVerification(demo);
+  });
+
+  // Step 5: Verification Proceed (Enforces 1 or 2 confirmations based on rules)
   $("payment-consent-button")?.addEventListener("click", () => {
-    navigateTo("payment-consent");
-    if (latestQr) {
-      const amountStr = Number.isInteger(latestQr.amountPaise) ? formatPaise(latestQr.amountPaise) : "unverified";
-      const summaryMsg = SpokenMessages.M16_PAYEE_READBACK(latestQr.payeeVpa, latestQr.payeeName, amountStr);
-      $("payee-summary").textContent = summaryMsg;
-      announceState(summaryMsg, { soundCue: "step" });
+    const verified = flow.ctx.verified;
+    if (!verified || verified.status === VerificationStatus.MISMATCH_BLOCKED) {
+      announceState("Payment handoff is blocked because the amounts do not match.", { assertive: true, soundCue: "alert" });
+      return;
+    }
+
+    const confirmed = flow.confirm();
+
+    if (verified.status === VerificationStatus.QR_AMOUNT_MISSING) {
+      if (!confirmed) {
+        // First of 2 confirmations done!
+        const btn = $("payment-consent-button");
+        if (btn) {
+          const t = btn.querySelector(".zone-title");
+          const s = btn.querySelector(".zone-sub");
+          if (t) t.textContent = "CONFIRM AGAIN (2 OF 2)";
+          if (s) s.textContent = "Tap again to confirm you will verify amount in UPI app";
+        }
+        announceState("First confirmation recorded. WARNING: This QR has no fixed amount. You must check the amount in your UPI app before authorising anything. Confirm again to proceed.", { assertive: true, soundCue: "alert" });
+        return;
+      }
+    }
+
+    // Guard passed! Proceed to handoff screen
+    if (flow.canOfferHandoff()) {
+      navigateTo("payment-consent");
+      if (latestQr) {
+        const amountStr = Number.isInteger(latestQr.amountPaise) ? formatPaise(latestQr.amountPaise) : "unverified / no fixed amount";
+        const summaryMsg = SpokenMessages.M16_PAYEE_READBACK(latestQr.payeeVpa, latestQr.payeeName, amountStr);
+        $("payee-summary").textContent = summaryMsg;
+        announceState(summaryMsg, { soundCue: "step" });
+      }
     }
   });
 
-  // Step 6: Payment Consent Handoff
+  // Step 6: Payment Consent Handoff (Only opens after guard passes!)
   $("upi-link")?.addEventListener("click", () => {
-    flow.confirm();
     if (!flow.canOfferHandoff()) {
-      announceState("Handoff blocked. Please verify amount again.", { assertive: true, soundCue: "alert" });
+      announceState("Payment handoff blocked. Required confirmations must pass before opening UPI.", { assertive: true, soundCue: "alert" });
       return;
     }
 

@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from verification import (
     VerificationRequest,
     VerificationResponse,
@@ -27,9 +27,9 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 # Primary and fallback vision models to prevent single-tier quota exhaustion
 MODEL_POOL = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
     "gemini-3.7-flash",
-    "gemini-3.5-flash",
-    "gemini-flash-lite-latest",
     "gemini-3.8-flash"
 ]
 
@@ -61,7 +61,14 @@ class ProductLabelResult(BaseModel):
 
 app = FastAPI(title="DrishtiPay Vision API")
 origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if origin.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["POST"], allow_headers=["Content-Type"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins if origins else ["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def image_mime_is_consistent(image: bytes, mime_type: str) -> bool:
@@ -94,10 +101,9 @@ For each field:
 - If completely absent or unreadable, set status to 'absent' or 'unreadable' and value to null.
 - For printed_mrp: Extract the clean numeric price (e.g. '10', '10.00', '35').
 Review_status must be 'needs_review'."""
-    client = genai.Client(api_key=api_key)
-    
     last_exception = None
     for model_name in MODEL_POOL:
+        client = genai.Client(api_key=api_key)
         try:
             logger.info("Calling vision model: %s", model_name)
             response = client.models.generate_content(
@@ -176,7 +182,7 @@ async def read_price(image: UploadFile = File(...)) -> ProductLabelResult:
             err_type = type(error).__name__
             last_err = error
             logger.warning("Vision pipeline failed (attempt %d/%d): type=%s message=%s", attempt + 1, retries + 1, err_type, safe_upstream_message(error))
-            if "Connect" in err_type or "Timeout" in err_type:
+            if any(k in err_type for k in ("Connect", "Timeout", "Read", "RemoteProtocol", "Protocol")):
                 if attempt < retries:
                     import time
                     time.sleep(1.0)
@@ -267,3 +273,47 @@ def verify_payment_details(
 ) -> VerificationResponse:
     return verify_transaction(request)
 
+class PaymentDetails(BaseModel):
+    payee_name: str = Field(min_length=1, max_length=100)
+    vpa: str = Field(min_length=3, max_length=100)
+    amount: float | None = Field(default=None, gt=0, le=1_000_000)
+    currency: str = "INR"
+
+    @field_validator("payee_name", "vpa")
+    @classmethod
+    def strip_whitespace(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("payee_name")
+    @classmethod
+    def name_not_blank(cls, value: str) -> str:
+        if not value:
+            raise ValueError("Payee name cannot be blank")
+        return value
+
+    @field_validator("vpa")
+    @classmethod
+    def validate_vpa_format(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9._-]{2,256}@[A-Za-z0-9.-]{2,64}", value):
+            raise ValueError("Invalid UPI ID format")
+        return value
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, value: str) -> str:
+        if value.upper() != "INR":
+            raise ValueError("Only INR is supported in this demo")
+        return "INR"
+
+
+@app.post("/api/v1/verify-payment-details")
+def verify_payment_details_endpoint(payment: PaymentDetails):
+    return {
+        "status": "caution",
+        "verified": False,
+        "payee_name": payment.payee_name,
+        "vpa": payment.vpa,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "message": "Only input format was checked. Merchant identity, payment destination and payment status have NOT been independently verified."
+    }

@@ -81,8 +81,8 @@
         <label class="giant-zone zone-secondary" for="product-file-input" style="cursor: pointer;">
           <span class="zone-title">📁 UPLOAD IMAGE</span>
           <span class="zone-sub">Choose label photo from device</span>
-          <input id="product-file-input" type="file" accept="image/*" style="display: none;" />
         </label>
+        <input id="product-file-input" type="file" accept="image/*" style="display: none;" />
 
         <button class="giant-zone zone-cancel secondary" data-next="product-review" type="button">
           <span class="zone-title">SKIP CAMERA</span>
@@ -146,8 +146,12 @@
       <!-- Minimal fallback if camera is impossible -->
       <details class="manual-fallback-details">
         <summary>Manual entry or test QR</summary>
-        <textarea id="qr-text" rows="2" placeholder="upi://pay?pa=merchant@bank&am=35.00"></textarea>
-        <button id="verify-button" class="secondary" type="button">Verify pasted text</button>
+        <textarea id="qr-text" rows="2" placeholder="upi://pay?pa=demo.merchant@upi&pn=Demo%20Merchant&am=35.00&cu=INR"></textarea>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+          <button id="verify-button" class="secondary" type="button">Verify text</button>
+          <button id="demo-qr-btn" class="quiet-button" type="button">Load ₹35 QR</button>
+          <button id="demo-noamt-qr-btn" class="quiet-button" type="button">Load No-Amount QR</button>
+        </div>
       </details>
 
       <div class="page-nav">
@@ -228,6 +232,7 @@
     </section>
   </main>
 
+  <script src="js/zxing-browser.min.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
