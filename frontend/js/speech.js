@@ -74,9 +74,71 @@ class SpeechManager {
     };
 
     this.synth = window.speechSynthesis || null;
+    this.voices = [];
+    this.preferredVoice = null;
+
+    // Load and select the best Indian English or Hindi voice
+    if (this.synth) {
+      this.initVoices();
+    }
 
     // Automatically initialize recognition if available in browser
     this.initRecognition();
+  }
+
+  // Load voices asynchronously and pick the most natural voice
+  initVoices() {
+    if (!this.synth) return;
+
+    const refreshVoices = () => {
+      this.voices = this.synth.getVoices() || [];
+      this.preferredVoice = this.pickBestVoice();
+      if (this.preferredVoice) {
+        console.log(`SpeechManager: Selected voice "${this.preferredVoice.name}" (${this.preferredVoice.lang})`);
+      }
+    };
+
+    refreshVoices();
+    if (this.synth.onvoiceschanged !== undefined) {
+      this.synth.onvoiceschanged = refreshVoices;
+    }
+  }
+
+  // Selects the clearest Indian English ('en-IN') or Hindi ('hi-IN') voice
+  pickBestVoice() {
+    if (!this.voices || this.voices.length === 0) return null;
+
+    // 1. Natural / Neural Indian English (Edge, Chrome, Windows: Neerja, Heera, Ravi, Google en-IN)
+    const indianEnNatural = this.voices.find(v =>
+      (v.lang === "en-IN" || v.lang === "en_IN" || v.lang.toLowerCase().startsWith("en-in")) &&
+      (/natural|online|google|neural|neerja|heera|ravi/i.test(v.name))
+    );
+    if (indianEnNatural) return indianEnNatural;
+
+    // 2. Any Indian English voice
+    const anyIndianEn = this.voices.find(v =>
+      v.lang === "en-IN" || v.lang === "en_IN" || v.lang.toLowerCase().startsWith("en-in")
+    );
+    if (anyIndianEn) return anyIndianEn;
+
+    // 3. Indian Hindi voice (Google हिन्दी, Microsoft Swara / Madhur)
+    const indianHindi = this.voices.find(v =>
+      v.lang.toLowerCase().startsWith("hi") || /hindi|swara|madhur/i.test(v.name)
+    );
+    if (indianHindi) return indianHindi;
+
+    // 4. Natural/Neural general English voice fallback
+    const naturalEn = this.voices.find(v =>
+      v.lang.toLowerCase().startsWith("en") && (/natural|neural|google/i.test(v.name))
+    );
+    if (naturalEn) return naturalEn;
+
+    // 5. Any English voice
+    const anyEn = this.voices.find(v => v.lang.toLowerCase().startsWith("en"));
+    if (anyEn) return anyEn;
+
+    // 6. Browser default
+    return this.voices.find(v => v.default) || this.voices[0] || null;
   }
 
   setAppVoice(enabled) {
@@ -108,7 +170,14 @@ class SpeechManager {
       this.synth.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 0.95;
-      utterance.lang = "en-IN";
+
+      const voice = this.preferredVoice || this.pickBestVoice();
+      if (voice) {
+        utterance.voice = voice;
+        utterance.lang = voice.lang;
+      } else {
+        utterance.lang = "en-IN";
+      }
       if (onEnd) {
         utterance.onend = onEnd;
         utterance.onerror = onEnd;
@@ -134,7 +203,8 @@ class SpeechManager {
 
     try {
       this.recognition = new SpeechRec();
-      this.recognition.lang = navigator.language || "en-US";
+      // Prioritize Indian English recognition for DrishtiPay
+      this.recognition.lang = "en-IN";
       this.recognition.continuous = false;
       this.recognition.interimResults = false;
       this.recognition.maxAlternatives = 1;
@@ -263,7 +333,7 @@ class SpeechManager {
     const lower = text.toLowerCase().trim();
 
     // 1. Confirm Commands
-    const confirmWords = ["yes", "confirm", "proceed", "okay", "ok", "continue", "pay"];
+    const confirmWords = ["yes", "confirm", "proceed", "okay", "ok", "continue", "pay", "haan", "ha", "sahi", "theek"];
     if (confirmWords.some(w => lower === w || lower.includes(w))) {
       this.unclearCount = 0;
       if (this.handlers.onConfirm) this.handlers.onConfirm(lower);
@@ -271,7 +341,7 @@ class SpeechManager {
     }
 
     // 2. Cancel / Back Commands
-    const cancelWords = ["no", "cancel", "stop", "abort", "back"];
+    const cancelWords = ["no", "cancel", "stop", "abort", "back", "nahi", "nahin", "ruk", "roko", "band"];
     if (cancelWords.some(w => lower === w || lower.includes(w))) {
       this.unclearCount = 0;
       if (this.handlers.onCancel) this.handlers.onCancel(lower);
@@ -279,13 +349,13 @@ class SpeechManager {
     }
 
     // 3. Repeat Commands
-    if (lower.includes("repeat") || lower.includes("say again")) {
+    if (lower.includes("repeat") || lower.includes("say again") || lower.includes("phir se") || lower.includes("dobara")) {
       this.repeatLast();
       return;
     }
 
     // 4. Start Navigation Commands
-    if (lower.includes("start") || lower.includes("shop") || lower.includes("inspect") || lower.includes("begin")) {
+    if (lower.includes("start") || lower.includes("shop") || lower.includes("inspect") || lower.includes("begin") || lower.includes("shuru")) {
       if (this.handlers.onStart) this.handlers.onStart();
       return;
     }
