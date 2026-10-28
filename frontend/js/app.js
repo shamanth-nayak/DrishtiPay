@@ -108,6 +108,30 @@ function stopActiveCamera() {
   if (qVid) qVid.srcObject = null;
 }
 
+// Camera Stream Helper with mobile fallback constraints
+async function requestMobileCameraStream() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error("SECURE_CONTEXT_REQUIRED");
+  }
+  const constraintsList = [
+    { video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: { ideal: "environment" } }, audio: false },
+    { video: { facingMode: "environment" }, audio: false },
+    { video: true, audio: false }
+  ];
+
+  let lastErr = null;
+  for (const c of constraintsList) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia(c);
+      if (s) return s;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("Camera could not be opened");
+}
+
 // Step 2: Auto-Starting Product Label Camera
 async function autoStartProductCamera() {
   const video = $("product-camera");
@@ -120,42 +144,40 @@ async function autoStartProductCamera() {
   }
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    if (statusEl) statusEl.textContent = "Live camera blocked over HTTP. Tap 'SNAP PHOTO WITH CAMERA' below.";
-    announceState("Live video camera requires HTTPS on mobile. Tap Snap Photo to capture with your phone camera.", { soundCue: "step" });
+    const originUrl = window.location.origin;
+    if (statusEl) {
+      statusEl.innerHTML = "<strong>Live Camera Blocked on Mobile (HTTP)</strong><br>Chrome requires enabling: <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> and adding: <code>" + originUrl + "</code>";
+    }
+    announceState("Live camera requires enabling the Chrome insecure origins flag for " + originUrl + ", or using HTTPS.", { assertive: true, soundCue: "alert" });
     return;
   }
 
-  if (statusEl) statusEl.textContent = "Camera active. Hold product label steady...";
+  if (statusEl) statusEl.textContent = "Live camera active. Hold product label steady...";
 
   try {
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false
-      });
-    } catch {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
-    }
-    if (!stream) throw new Error("No camera stream");
-
+    const stream = await requestMobileCameraStream();
     activeStream = stream;
     video.srcObject = stream;
     try { await video.play(); } catch {}
     sound.playStep();
 
-    announceState("Camera is looking for product label. Hold steady.", { soundCue: "step" });
+    announceState("Live camera is looking for product label. Hold steady.", { soundCue: "step" });
 
     autoCaptureTimeout = setTimeout(() => {
       triggerProductCapture();
     }, 4500);
   } catch (err) {
-    console.error("Camera access:", err);
-    if (statusEl) statusEl.textContent = "Camera preview unavailable. Tap 'SNAP PHOTO' to take a photo.";
-    announceState("Camera preview unavailable. Tap Snap Photo below to take a picture with your phone.", { assertive: true, soundCue: "alert" });
+    console.error("Camera access error:", err);
+    if (err.message === "SECURE_CONTEXT_REQUIRED") {
+      const originUrl = window.location.origin;
+      if (statusEl) {
+        statusEl.innerHTML = "<strong>Live Camera Blocked on Mobile (HTTP)</strong><br>Enable <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> and add <code>" + originUrl + "</code>";
+      }
+      announceState("Live camera blocked. Enable Chrome flag or run over HTTPS.", { assertive: true, soundCue: "alert" });
+    } else {
+      if (statusEl) statusEl.textContent = "Camera access error (" + err.message + "). Check permissions.";
+      announceState("Camera permission denied or camera unavailable. Check phone permissions.", { assertive: true, soundCue: "alert" });
+    }
   }
 }
 
@@ -260,7 +282,7 @@ function triggerProductCapture() {
   }, "image/jpeg", 0.92);
 }
 
-// Step 4: Auto-Starting Merchant QR Scanner with ZXing
+// Step 4: Auto-Starting Merchant QR Scanner with ZXing (Live Video Stream)
 async function autoStartQrCamera() {
   const video = $("qr-camera");
   const statusEl = $("qr-scan-status");
@@ -272,15 +294,18 @@ async function autoStartQrCamera() {
   }
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    if (statusEl) statusEl.textContent = "Live camera blocked over HTTP. Tap 'SNAP QR WITH CAMERA' below.";
-    announceState("Live camera preview requires HTTPS on mobile. Tap Snap QR below to take photo.", { soundCue: "step" });
+    const originUrl = window.location.origin;
+    if (statusEl) {
+      statusEl.innerHTML = "<strong>Live Camera Blocked on Mobile (HTTP)</strong><br>Chrome requires enabling: <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> and adding: <code>" + originUrl + "</code>";
+    }
+    announceState("Live QR scanner requires enabling the Chrome insecure origins flag for " + originUrl + ", or using HTTPS.", { assertive: true, soundCue: "alert" });
     return;
   }
 
-  if (statusEl) statusEl.textContent = "Camera live. Aiming for shop's UPI QR...";
+  if (statusEl) statusEl.textContent = "Live camera scanning... Aim at payment QR.";
 
   try {
-    // 1. Primary: Use ZXing Browser for universal cross-platform camera QR scanning
+    // 1. Primary: Use ZXing Browser decodeFromConstraints on live video element
     if (window.ZXingBrowser && window.ZXingBrowser.BrowserQRCodeReader) {
       if (!zxingReader) {
         zxingReader = new window.ZXingBrowser.BrowserQRCodeReader();
@@ -290,7 +315,6 @@ async function autoStartQrCamera() {
 
       try {
         let found = false;
-        // Specify environment constraints so mobile uses the BACK camera instead of selfie camera
         zxingControls = await zxingReader.decodeFromConstraints({
           audio: false,
           video: { facingMode: { ideal: "environment" } }
@@ -306,25 +330,12 @@ async function autoStartQrCamera() {
         });
         return;
       } catch (zxErr) {
-        console.warn("ZXing decodeFromConstraints error, falling back:", zxErr);
+        console.warn("ZXing decodeFromConstraints error, trying manual stream fallback:", zxErr);
       }
     }
 
-    // 2. Fallback: getUserMedia stream with BarcodeDetector
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false
-      });
-    } catch {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
-    }
-    if (!stream) throw new Error("No camera stream");
-
+    // 2. Fallback: Direct getUserMedia stream with BarcodeDetector or ZXing decodeFromVideoElement
+    const stream = await requestMobileCameraStream();
     activeStream = stream;
     video.srcObject = stream;
     try { await video.play(); } catch {}
@@ -345,64 +356,28 @@ async function autoStartQrCamera() {
             runVerification(raw);
           }
         } catch {}
-      }, 400);
+      }, 300);
+    } else if (window.ZXingBrowser && zxingReader) {
+      scanTimer = setInterval(async () => {
+        try {
+          if (video.readyState < 2) return;
+          const result = await zxingReader.decodeFromVideoElement(video);
+          if (result) {
+            const raw = result.getText().trim();
+            stopActiveCamera();
+            if ($("qr-text")) $("qr-text").value = raw;
+            sound.playDetected();
+            runVerification(raw);
+          }
+        } catch {}
+      }, 350);
     } else {
-      if (statusEl) statusEl.textContent = "Point camera at merchant QR code, or snap photo below.";
+      if (statusEl) statusEl.textContent = "Point live camera at merchant QR code, or paste UPI link below.";
     }
   } catch (err) {
-    console.error("QR Camera access:", err);
-    if (statusEl) statusEl.textContent = "Camera preview unavailable. Tap 'SNAP QR' below.";
-    announceState("Camera preview unavailable. Tap Snap QR below to take a photo of the shop QR.", { assertive: true, soundCue: "alert" });
-  }
-}
-
-// Process QR from a photo (snapshot or gallery upload)
-let isProcessingQr = false;
-async function processQrFile(file) {
-  if (!file || isProcessingQr) return;
-  isProcessingQr = true;
-  stopActiveCamera();
-
-  const statusEl = $("qr-scan-status");
-  if (statusEl) statusEl.textContent = "Scanning QR from photo...";
-  sound.playDetected();
-  announceState("Reading QR code from photo...", { soundCue: "detected" });
-
-  try {
-    if (!zxingReader) {
-      zxingReader = new window.ZXingBrowser.BrowserQRCodeReader();
-    }
-    const imgUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = async () => {
-      try {
-        const result = await zxingReader.decodeFromImageElement(img);
-        const raw = result.getText().trim();
-        if ($("qr-text")) $("qr-text").value = raw;
-        sound.playDetected();
-        runVerification(raw);
-      } catch (decodeErr) {
-        console.warn("ZXing photo decode error:", decodeErr);
-        if (statusEl) statusEl.textContent = "Could not find QR in photo. Please hold closer.";
-        announceState("Could not find a valid QR code in that photo. Please hold closer and retake.", { assertive: true, soundCue: "alert" });
-      } finally {
-        URL.revokeObjectURL(imgUrl);
-        isProcessingQr = false;
-        const fi1 = $("qr-camera-input");
-        const fi2 = $("qr-upload-input");
-        if (fi1) fi1.value = "";
-        if (fi2) fi2.value = "";
-      }
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(imgUrl);
-      isProcessingQr = false;
-      announceState("Could not load photo. Please try again.", { assertive: true, soundCue: "alert" });
-    };
-    img.src = imgUrl;
-  } catch (err) {
-    isProcessingQr = false;
-    announceState("Error reading QR photo: " + err.message, { assertive: true, soundCue: "alert" });
+    console.error("QR Camera access error:", err);
+    if (statusEl) statusEl.textContent = "Live QR camera unavailable. Paste UPI payment link below.";
+    announceState(SpokenMessages.M02_CAMERA_DENIED, { assertive: true, soundCue: "alert" });
   }
 }
 
@@ -632,47 +607,29 @@ document.addEventListener("DOMContentLoaded", () => {
   // Step 2: Product Capture manual override
   $("manual-capture-btn")?.addEventListener("click", () => triggerProductCapture());
 
-  // Step 2: Product Image & Camera Capture
-  const handleProductFile = (e) => {
-    const file = e.target.files?.[0];
-    if (file) processLabelFile(file);
-  };
+  // Step 2: Product Image File Upload (Gallery backup)
+  const fileInput = $("product-file-input");
+  const uploadLabel = document.querySelector('label[for="product-file-input"]');
 
-  const cancelAutoOnProductCapture = () => {
+  const cancelAutoOnUpload = () => {
     if (autoCaptureTimeout) {
       clearTimeout(autoCaptureTimeout);
       autoCaptureTimeout = null;
     }
     stopActiveCamera();
     const statusEl = $("product-scan-status");
-    if (statusEl) statusEl.textContent = "Camera paused. Processing photo...";
+    if (statusEl) statusEl.textContent = "Live camera paused. Select your label photo...";
   };
 
-  $("product-file-input")?.addEventListener("change", handleProductFile);
-  $("product-camera-input")?.addEventListener("change", handleProductFile);
-  $("product-file-input")?.addEventListener("click", cancelAutoOnProductCapture);
-  $("product-camera-input")?.addEventListener("click", cancelAutoOnProductCapture);
-  document.querySelector('label[for="product-file-input"]')?.addEventListener("click", cancelAutoOnProductCapture);
-  document.querySelector('label[for="product-camera-input"]')?.addEventListener("click", cancelAutoOnProductCapture);
+  uploadLabel?.addEventListener("click", cancelAutoOnUpload);
+  fileInput?.addEventListener("click", cancelAutoOnUpload);
 
-  // Step 4: QR Image & Camera Capture
-  const handleQrFile = (e) => {
+  fileInput?.addEventListener("change", (e) => {
     const file = e.target.files?.[0];
-    if (file) processQrFile(file);
-  };
-
-  const cancelActiveOnQrCapture = () => {
-    stopActiveCamera();
-    const statusEl = $("qr-scan-status");
-    if (statusEl) statusEl.textContent = "Camera paused. Processing QR photo...";
-  };
-
-  $("qr-camera-input")?.addEventListener("change", handleQrFile);
-  $("qr-upload-input")?.addEventListener("change", handleQrFile);
-  $("qr-camera-input")?.addEventListener("click", cancelActiveOnQrCapture);
-  $("qr-upload-input")?.addEventListener("click", cancelActiveOnQrCapture);
-  document.querySelector('label[for="qr-camera-input"]')?.addEventListener("click", cancelActiveOnQrCapture);
-  document.querySelector('label[for="qr-upload-input"]')?.addEventListener("click", cancelActiveOnQrCapture);
+    if (file) {
+      processLabelFile(file);
+    }
+  });
 
   // Step 3: Confirm Intended Amount
   $("product-form")?.addEventListener("submit", (e) => {

@@ -73,20 +73,14 @@
       <p id="product-scan-status" class="status-announcer" role="status">Aim camera at product label...</p>
 
       <div class="split-zones compact-split">
-        <label class="giant-zone zone-confirm primary" for="product-camera-input" style="cursor: pointer;">
-          <span class="zone-title">📸 SNAP PHOTO WITH CAMERA</span>
-          <span class="zone-sub">Open phone camera to take photo</span>
-        </label>
-        <input id="product-camera-input" type="file" accept="image/*" capture="environment" style="display: none;" />
-
-        <button id="manual-capture-btn" class="giant-zone zone-secondary" type="button">
-          <span class="zone-title">⚡ CAPTURE LIVE STREAM</span>
-          <span class="zone-sub">Snapshot from live preview above</span>
+        <button id="manual-capture-btn" class="giant-zone zone-confirm primary" type="button">
+          <span class="zone-title">📸 CAPTURE NOW</span>
+          <span class="zone-sub">Tap here or hold steady for auto-capture</span>
         </button>
 
         <label class="giant-zone zone-secondary" for="product-file-input" style="cursor: pointer;">
           <span class="zone-title">📁 UPLOAD IMAGE</span>
-          <span class="zone-sub">Choose label photo from gallery</span>
+          <span class="zone-sub">Choose label photo from device</span>
         </label>
         <input id="product-file-input" type="file" accept="image/*" style="display: none;" />
 
@@ -149,19 +143,7 @@
 
       <p id="qr-scan-status" class="status-announcer" role="status">Searching for merchant UPI QR...</p>
 
-      <div class="split-zones compact-split">
-        <label class="giant-zone zone-confirm primary" for="qr-camera-input" style="cursor: pointer;">
-          <span class="zone-title">📸 SNAP QR WITH CAMERA</span>
-          <span class="zone-sub">Take a photo of the shop QR</span>
-        </label>
-        <input id="qr-camera-input" type="file" accept="image/*" capture="environment" style="display: none;" />
 
-        <label class="giant-zone zone-secondary" for="qr-upload-input" style="cursor: pointer;">
-          <span class="zone-title">📁 UPLOAD QR IMAGE</span>
-          <span class="zone-sub">Pick QR photo from gallery</span>
-        </label>
-        <input id="qr-upload-input" type="file" accept="image/*" style="display: none;" />
-      </div>
 
       <!-- Minimal fallback if camera is impossible -->
       <details class="manual-fallback-details">
