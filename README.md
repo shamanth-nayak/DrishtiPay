@@ -21,9 +21,21 @@ This was built exclusively for Hackloop '26.
 
 ## Screens
 
-| Start | Camera | Confirm amount | Review |
-|---|---|---|---|
-| ![Home](docs/screenshots/01-home.jpg) | ![Camera](docs/screenshots/02-product-camera.jpg) | ![Amount](docs/screenshots/03-confirm-amount.jpg) | ![Review](docs/screenshots/04-amounts-match-confirm.jpg) |
+### Start
+
+![Start](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/01-start.jpg)
+
+### Camera
+
+![Camera](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/02-camera.jpg)
+
+### Confirm amount
+
+![Confirm amount](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/03-confirm-amount.jpg)
+
+### Review
+
+![Review](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/04-review.jpg)
 
 ## Running the project
 
@@ -35,21 +47,21 @@ This was built exclusively for Hackloop '26.
 ### 1. Install dependencies
 
 Open a terminal in the project root directory and run:
-
 ```
 npm install
+
 ```
 
 ### 2. Start the application
-
 ```
 npm start
+
 ```
 
 The server should start at:
-
 ```
 http://localhost:5173
+
 ```
 
 Open this URL in your browser to use DrishtiPay.
