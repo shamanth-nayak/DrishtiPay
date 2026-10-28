@@ -1,72 +1,81 @@
 # DrishtiPay
 
-An accessibility and transaction-verification prototype for the Hackloop S05 hackathon.
+DrishtiPay is a voice-first payment amount checker for blind and low-vision shoppers in India. It helps a user confirm the amount they intend to pay, compare it with the amount in a UPI QR code, and hear the result before opening their own UPI app.
 
-> AI interprets. Deterministic code verifies. The user authorizes. The existing UPI app executes.
+## About
 
-DrishtiPay is not a payment processor. It does not collect a UPI PIN, authenticate a merchant, move money, or claim that a handoff completed a payment.
+**NMAMIT Hackloop**
 
----
+This project idea was made for the Hackloop 2026 event held by the Finite Loop Club.
 
-## Hardware & IoT Requirements
+This was built exclusively for Hackloop '26.
 
-* **No external IoT hardware is required** to run or test the prototype.
-* The application runs directly in any modern web browser on a smartphone, tablet, or laptop.
-* It utilizes built-in device hardware:
-  * **Camera**: Built-in webcam or phone camera for QR code and label scanning (via browser `BarcodeDetector` and `getUserMedia`).
-  * **Microphone & Speaker**: Built-in audio hardware for voice commands and speech feedback (via Web Speech API and TalkBack / screen-reader live regions).
+> **Status:** Fully tested.
 
----
+## How it works
 
-## Run the Prototype
+1. Read the product label (camera or upload), or scan the QR directly.
+2. Confirm the amount you intend to pay.
+3. Scan the UPI QR and compare amounts.
+4. Hear the result, then explicitly confirm to continue to your UPI app.
 
-This prototype deliberately uses no third-party packages.
+## Screens
 
-```powershell
+| Start | Camera | Confirm amount | Review |
+|---|---|---|---|
+| ![Home](docs/screenshots/01-home.jpg) | ![Camera](docs/screenshots/02-product-camera.jpg) | ![Amount](docs/screenshots/03-confirm-amount.jpg) | ![Review](docs/screenshots/04-amounts-match-confirm.jpg) |
+
+## Running the project
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) and npm installed.
+- Git installed, or a downloaded copy of the project.
+
+### 1. Install dependencies
+
+Open a terminal in the project root directory and run:
+
+```
+npm install
+```
+
+### 2. Start the application
+
+```
 npm start
 ```
 
-Open `http://localhost:5173` in your browser.
+The server should start at:
 
-Run the safety-rule tests with:
-
-```powershell
-npm test
+```
+http://localhost:5173
 ```
 
----
+Open this URL in your browser to use DrishtiPay.
 
-## Voice & Accessibility Controls
+### 3. Stop the application
 
-DrishtiPay provides hands-free accessibility for visually impaired users:
+Press `Ctrl + C` in the terminal.
 
-* **App Voice (TTS)**: Tap **"Turn on app voice"** to have screens and instructions read aloud automatically using high-quality Indian English (`en-IN`) or Hindi (`hi-IN`) synthesis.
-* **Screen Reader Support**: Integrated with ARIA live regions (`#live-polite`, `#live-assertive`) for native TalkBack and NVDA support without echo.
-* **Voice Commands**: Tap **"🎙 Speak Command"** and speak naturally:
-  * **Start / Navigation**: Say *"start"*, *"begin"*, *"shop"*, or *"shuru"*.
-  * **Confirm**: Say *"confirm"*, *"yes"*, *"proceed"*, *"okay"*, *"haan"*, or *"sahi"*.
-  * **Cancel / Back**: Say *"cancel"*, *"no"*, *"stop"*, *"back"*, *"nahi"*, or *"ruk"*.
-  * **Repeat**: Say *"repeat"*, *"say again"*, *"phir se"*, or *"dobara"*.
-  * **Direct QR**: Say *"direct qr"* or *"scan qr"* to bypass label capture.
-  * **Amount**: Speak any payment amount (e.g., *"35"*, *"fifty rupees"*, *"100"*).
+### Notes
 
----
+- Allow camera access when prompted.
+- Camera access on a phone may require HTTPS or another secure context.
+- This prototype checks payment amounts; it does not process payments or verify merchants.
 
-## Demonstrate It
+## Planned stack
 
-1. Enter `35` as the intended amount (or say *"35 rupees"*).
-2. Choose **Try matching ₹35 QR**, then **Verify payment request**.
-3. Confirm the payee and amount, then enable **Open your UPI app**.
-4. Reset, choose **Try ₹350 mismatch**, and verify that handoff is blocked.
-5. Try the no-amount QR: it is explicitly reported as unverified.
+**Major:** OpenCV
 
-QR-image and live-camera scanning use the browser's native `BarcodeDetector` when available. A pasted UPI request is always provided as an accessible fallback. Product-label upload is a manual-review placeholder; connect it to the planned OCR service before claiming automatic price reading.
+**Minor:** React, TypeScript, Vite · Python, FastAPI · EasyOCR · ZXing · browser speech
 
----
+## Limitations
 
-## Team
+- Does not process payments, handle PINs, verify merchants or detect fraud.
+- A match only means two amounts are equal.
+- OCR can be wrong, so the user confirms every price.
 
-- **Shamanth Nayak** — frontend and integration
-- **Naman D Shetty** — QR parser and verification rules
-- **Prapthi Shetty** — label/OCR integration
-- **Vidhi Keshri** — accessibility, testing, and demo
+## Future
+
+Better voice commands, more languages, testing on more devices and with more users.
