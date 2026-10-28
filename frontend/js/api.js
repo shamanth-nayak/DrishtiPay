@@ -1,7 +1,16 @@
-// This frontend is served as static files, not by Vite. Override this global before
-// loading app.js only when the API is hosted somewhere other than localhost:8000.
-const defaultHost = (typeof window !== "undefined" && window.location?.hostname) ? window.location.hostname : "localhost";
-const baseUrl = String(globalThis.DRISHTIPAY_API_BASE_URL || `http://${defaultHost}:8000`).replace(/\/$/, "");
+function getApiBase() {
+  if (typeof globalThis.DRISHTIPAY_API_BASE_URL === "string") {
+    return globalThis.DRISHTIPAY_API_BASE_URL.replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined" && window.location?.protocol?.startsWith("http")) {
+    // Relative path routes through server.mjs proxy, avoiding CORS and mobile port issues
+    return "";
+  }
+  const host = (typeof window !== "undefined" && window.location?.hostname) ? window.location.hostname : "localhost";
+  return `http://${host}:8000`;
+}
+
+const baseUrl = getApiBase();
 
 /** Calls the optional FastAPI reader. It intentionally exposes no fabricated fallback. */
 export async function readProductLabel(image) {
