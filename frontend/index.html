@@ -15,9 +15,12 @@
   <header class="topbar">
     <a class="brand" href="#welcome" aria-label="DrishtiPay Home">Drishti<span>Pay</span></a>
     <div class="topbar-actions">
-      <button id="voice-cmd-btn" class="app-voice-btn" type="button" aria-label="Speak Voice Command">🎙 Speak Command</button>
-      <button id="voice-toggle" class="app-voice-btn" type="button" aria-pressed="false" aria-label="Toggle App Speech Synthesis">Turn on app voice</button>
-      <button class="btn-repeat quiet-button" type="button" aria-label="Repeat last message">Repeat</button>
+      <div id="voice-indicator" class="voice-badge active" role="status" aria-live="polite" aria-label="Continuous voice command status">
+        <span class="pulse-ring" aria-hidden="true"></span>
+        <span class="mic-icon" aria-hidden="true">🎙</span>
+        <span id="speech-status-text">Voice Active</span>
+      </div>
+      <button class="btn-repeat quiet-button" type="button" aria-label="Repeat last message">🔁 Repeat</button>
     </div>
   </header>
 
@@ -27,7 +30,7 @@
 
   <!-- Persistent Full-Screen Gesture Banner (for Blind Users) -->
   <div id="gesture-hint" class="gesture-bar" role="note" aria-label="Gesture instructions">
-    <span>Tap top half to Confirm · Tap bottom half to Cancel · Tap anywhere with 2 fingers to Repeat</span>
+    <span>👆 Tap top to Confirm · 🛑 Tap bottom to Cancel · ✌️ 2 fingers to Repeat</span>
   </div>
 
   <main id="main-content" class="shell" tabindex="-1">
@@ -56,7 +59,7 @@
         </button>
       </div>
 
-      <p id="voice-status" class="hint" role="status">Screen readers like TalkBack guide you continuously.</p>
+      <p id="voice-status" class="hint" role="status">🎙 Hands-free voice active. Say "Start", "Confirm", or "Repeat" anytime.</p>
     </section>
 
     <!-- STEP 2: AUTONOMOUS PRODUCT INSPECTION -->

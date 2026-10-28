@@ -486,94 +486,32 @@ function initGlobalGestures() {
 document.addEventListener("DOMContentLoaded", () => {
   initGlobalGestures();
 
-  // App Voice Toggle
-  const voiceToggle = $("voice-toggle");
-  voiceToggle?.addEventListener("click", () => {
-    const isEnabled = voiceToggle.getAttribute("aria-pressed") === "true";
-    const nextState = !isEnabled;
-    voiceToggle.setAttribute("aria-pressed", String(nextState));
-    voiceToggle.textContent = nextState ? "Turn off app voice" : "Turn on app voice";
-    speech.setAppVoice(nextState);
+  // Continuous Speech Activation on First User Interaction (required by mobile browsers)
+  const initSpeechOnGesture = () => {
+    speech.startContinuous();
+  };
+  window.addEventListener("pointerdown", initSpeechOnGesture, { once: true, passive: true });
+  window.addEventListener("touchstart", initSpeechOnGesture, { once: true, passive: true });
+  window.addEventListener("click", initSpeechOnGesture, { once: true, passive: true });
 
-    if (nextState) {
-      announceState("App voice enabled. Speech will read all screens automatically.", { soundCue: "step" });
-    } else {
-      announceState("App voice turned off. TalkBack handles screen reading.", { soundCue: "step" });
-    }
-  });
-
-  // Voice Command Button (Native Web Speech with toggle state & graceful fallback)
-  const voiceCmdBtn = $("voice-cmd-btn");
-  voiceCmdBtn?.addEventListener("click", () => {
-    sound.playStep();
-
-    // If currently listening, stop it cleanly
-    if (speech.isListening) {
-      speech.stopListening();
-      voiceCmdBtn.textContent = "🎙 Speak Command";
-      voiceCmdBtn.setAttribute("aria-pressed", "false");
-      announceState("Voice listening stopped.", { soundCue: "step" });
-      return;
-    }
-
-    const started = speech.startListening({
-      onStart: () => {
-        voiceCmdBtn.textContent = "🔴 Listening... Speak now";
-        voiceCmdBtn.setAttribute("aria-pressed", "true");
-        announceState("Listening for command. Say Start, Confirm, or an amount.", { soundCue: "step" });
-      },
-      onResult: (transcript) => {
-        voiceCmdBtn.textContent = "🎙 Speak Command";
-        voiceCmdBtn.setAttribute("aria-pressed", "false");
-        announceState(`Heard: "${transcript}"`, { soundCue: "detected" });
-      },
-      onError: (errInfo) => {
-        voiceCmdBtn.textContent = "🎙 Speak Command";
-        voiceCmdBtn.setAttribute("aria-pressed", "false");
-        announceState(errInfo.message || "Could not hear command. Please try again or tap buttons.", { soundCue: "alert" });
-      },
-      onEnd: () => {
-        voiceCmdBtn.textContent = "🎙 Speak Command";
-        voiceCmdBtn.setAttribute("aria-pressed", "false");
-      }
-    });
-
-    // If native speech recognition is not supported in this browser, fallback to audio recording
-    if (!started) {
-      console.warn("Native SpeechRecognition unavailable, trying media recording fallback...");
-      speech.recordAudioCommand({
-        onStart: () => {
-          voiceCmdBtn.textContent = "🔴 Recording... Speak now";
-          voiceCmdBtn.setAttribute("aria-pressed", "true");
-          announceState("Recording command. Speak now.", { soundCue: "step" });
-        },
-        onTranscript: (res) => {
-          voiceCmdBtn.textContent = "🎙 Speak Command";
-          voiceCmdBtn.setAttribute("aria-pressed", "false");
-          if (res.text) announceState(`Heard: "${res.text}"`, { soundCue: "detected" });
-          if (res.amount_rupees && $("intended-amount")) {
-            $("intended-amount").value = res.amount_rupees;
-          }
-        },
-        onError: () => {
-          voiceCmdBtn.textContent = "🎙 Speak Command";
-          voiceCmdBtn.setAttribute("aria-pressed", "false");
-          announceState("Could not hear command. Tap the screen to continue.", { soundCue: "alert" });
-        }
-      });
-    }
-  });
-
-  // Register command handlers for speech
+  // Register command handlers for continuous hands-free speech
   speech.registerActions({
-    onStart: () => $("start-button")?.click(),
-    onDirectQr: () => $("direct-qr-button")?.click(),
+    onStart: () => {
+      const active = document.querySelector(".page.active")?.id;
+      if (active === "welcome") $("start-button")?.click();
+    },
+    onDirectQr: () => {
+      const active = document.querySelector(".page.active")?.id;
+      if (active === "welcome") $("direct-qr-button")?.click();
+    },
     onConfirm: () => {
       const active = document.querySelector(".page.active")?.id;
       if (active === "welcome") $("start-button")?.click();
+      else if (active === "product-scan") triggerProductCapture();
       else if (active === "product-review") $("product-form")?.requestSubmit();
       else if (active === "verification") $("payment-consent-button")?.click();
       else if (active === "payment-consent") $("upi-link")?.click();
+      else if (active === "outcome-report") navigateTo("welcome", SpokenMessages.M01_WELCOME);
     },
     onCancel: () => {
       flow.cancel();
@@ -593,6 +531,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Step 1: Start Button
   $("start-button")?.addEventListener("click", () => {
+    speech.startContinuous();
     flow.start();
     navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
   });

@@ -1,22 +1,18 @@
 import { SpokenMessages } from "./messages.js";
 
-// Audio & Screen-reader speech manager
-// Handbook Rule D17: Live regions first so TalkBack reads them without echo.
-// App voice (Web Speech API synthesis) is toggled explicitly by the user.
-
 // Helper: Extracts number/amount in rupees from spoken text (e.g., "35", "35 rupees", "thirty five")
 function extractAmountFromText(text) {
   if (!text) return null;
   const cleaned = text.toLowerCase().replace(/,/g, "").trim();
 
-  // 1. Check direct digits: e.g., "35", "₹35", "35 rupees", "40.50"
-  const numMatch = cleaned.match(/(?:(?:rs\.?|inr|₹|rupees?)\s*)?(\d+(?:\.\d{1,2})?)(?:\s*(?:rs\.?|inr|₹|rupees?))?/);
+  // 1. Direct digits (e.g., "35", "₹35", "35 rupees", "40.50")
+  const numMatch = cleaned.match(/(?:(?:rs\.?|inr|₹|rupees?)\s*)?(\d+(?:\.\d{1,2})?)(?:\s*(?:rs\.?|inr|₹|rupees?))?/i);
   if (numMatch && numMatch[1]) {
     const val = parseFloat(numMatch[1]);
     if (!isNaN(val) && val > 0) return val;
   }
 
-  // 2. Convert spoken word numbers (e.g., "thirty five", "one hundred fifty")
+  // 2. Word numbers (e.g., "thirty five", "one hundred fifty")
   const wordMap = {
     zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
     ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
@@ -49,19 +45,15 @@ function extractAmountFromText(text) {
 
 class SpeechManager {
   constructor() {
-    this.appVoiceEnabled = false;
+    // App voice synthesis enabled by default for blind/low-vision accessibility
+    this.appVoiceEnabled = true;
+    this.continuousMode = true;
     this.recognition = null;
     this.isListening = false;
+    this.isPausedForTTS = false;
     this.lastSpoken = "";
-    this.unclearCount = 0;
-    this.silenceTimer = null;
-
-    this.activeCallbacks = {
-      onStart: null,
-      onResult: null,
-      onError: null,
-      onEnd: null
-    };
+    this.restartTimer = null;
+    this.statusTimer = null;
 
     this.handlers = {
       onConfirm: null,
@@ -73,29 +65,23 @@ class SpeechManager {
       onGeneral: null
     };
 
-    this.synth = window.speechSynthesis || null;
+    this.synth = typeof window !== "undefined" ? window.speechSynthesis : null;
     this.voices = [];
     this.preferredVoice = null;
 
-    // Load and select the best Indian English or Hindi voice
     if (this.synth) {
       this.initVoices();
     }
 
-    // Automatically initialize recognition if available in browser
     this.initRecognition();
   }
 
-  // Load voices asynchronously and pick the most natural voice
   initVoices() {
     if (!this.synth) return;
 
     const refreshVoices = () => {
       this.voices = this.synth.getVoices() || [];
       this.preferredVoice = this.pickBestVoice();
-      if (this.preferredVoice) {
-        console.log(`SpeechManager: Selected voice "${this.preferredVoice.name}" (${this.preferredVoice.lang})`);
-      }
     };
 
     refreshVoices();
@@ -104,11 +90,10 @@ class SpeechManager {
     }
   }
 
-  // Selects the clearest Indian English ('en-IN') or Hindi ('hi-IN') voice
   pickBestVoice() {
     if (!this.voices || this.voices.length === 0) return null;
 
-    // 1. Natural / Neural Indian English (Edge, Chrome, Windows: Neerja, Heera, Ravi, Google en-IN)
+    // 1. Natural / Neural Indian English
     const indianEnNatural = this.voices.find(v =>
       (v.lang === "en-IN" || v.lang === "en_IN" || v.lang.toLowerCase().startsWith("en-in")) &&
       (/natural|online|google|neural|neerja|heera|ravi/i.test(v.name))
@@ -121,24 +106,17 @@ class SpeechManager {
     );
     if (anyIndianEn) return anyIndianEn;
 
-    // 3. Indian Hindi voice (Google हिन्दी, Microsoft Swara / Madhur)
+    // 3. Indian Hindi voice
     const indianHindi = this.voices.find(v =>
       v.lang.toLowerCase().startsWith("hi") || /hindi|swara|madhur/i.test(v.name)
     );
     if (indianHindi) return indianHindi;
 
-    // 4. Natural/Neural general English voice fallback
-    const naturalEn = this.voices.find(v =>
-      v.lang.toLowerCase().startsWith("en") && (/natural|neural|google/i.test(v.name))
-    );
-    if (naturalEn) return naturalEn;
-
-    // 5. Any English voice
+    // 4. Any English voice
     const anyEn = this.voices.find(v => v.lang.toLowerCase().startsWith("en"));
     if (anyEn) return anyEn;
 
-    // 6. Browser default
-    return this.voices.find(v => v.default) || this.voices[0] || null;
+    return this.voices[0] || null;
   }
 
   setAppVoice(enabled) {
@@ -148,7 +126,17 @@ class SpeechManager {
     }
   }
 
-  // Announces to both TalkBack live regions and optional speech synthesis
+  updateIndicator(text, state = "active") {
+    const statusTextEl = document.getElementById("speech-status-text");
+    const indicatorEl = document.getElementById("voice-indicator");
+    if (statusTextEl) statusTextEl.textContent = text;
+    if (indicatorEl) {
+      indicatorEl.classList.remove("active", "listening", "speaking", "recognized", "error");
+      indicatorEl.classList.add(state);
+    }
+  }
+
+  // Announces text via screen reader live region and synthesized speech
   announce(text, { assertive = false, speakWithSynth = true, onEnd = null } = {}) {
     if (!text) return;
     this.lastSpoken = text;
@@ -165,11 +153,17 @@ class SpeechManager {
       setTimeout(() => { politeRegion.textContent = text; }, 50);
     }
 
-    // App Voice Synthesis (only when explicitly enabled by user)
+    // App Voice Synthesis
     if (this.appVoiceEnabled && speakWithSynth && this.synth) {
       this.synth.cancel();
+
+      // Temporarily pause microphone recognition while phone speaks to prevent echo feedback
+      this.isPausedForTTS = true;
+      this.stopListening();
+      this.updateIndicator("Speaking...", "speaking");
+
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.95;
+      utterance.rate = 0.96;
 
       const voice = this.preferredVoice || this.pickBestVoice();
       if (voice) {
@@ -178,10 +172,22 @@ class SpeechManager {
       } else {
         utterance.lang = "en-IN";
       }
-      if (onEnd) {
-        utterance.onend = onEnd;
-        utterance.onerror = onEnd;
-      }
+
+      const finishTTS = () => {
+        this.isPausedForTTS = false;
+        if (onEnd) onEnd();
+        // Resume continuous listening shortly after speech finishes
+        if (this.continuousMode) {
+          clearTimeout(this.restartTimer);
+          this.restartTimer = setTimeout(() => {
+            this.startListening();
+          }, 350);
+        }
+      };
+
+      utterance.onend = finishTTS;
+      utterance.onerror = finishTTS;
+
       this.synth.speak(utterance);
     } else if (onEnd) {
       setTimeout(onEnd, 100);
@@ -195,264 +201,191 @@ class SpeechManager {
   }
 
   initRecognition() {
+    if (typeof window === "undefined") return false;
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
-      console.warn("Native SpeechRecognition not supported in this browser.");
+      console.warn("SpeechRecognition not available in this browser environment.");
+      this.updateIndicator("Voice: touch only", "error");
       return false;
     }
 
     try {
       this.recognition = new SpeechRec();
-      // Prioritize Indian English recognition for DrishtiPay
       this.recognition.lang = "en-IN";
-      this.recognition.continuous = false;
+      this.recognition.continuous = true;
       this.recognition.interimResults = false;
-      this.recognition.maxAlternatives = 1;
+      this.recognition.maxAlternatives = 2;
 
       this.recognition.onstart = () => {
         this.isListening = true;
-        this.armSilenceTimeout(12);
-        if (this.activeCallbacks.onStart) this.activeCallbacks.onStart();
+        this.updateIndicator("Listening: Start · Confirm · Repeat", "listening");
       };
 
       this.recognition.onresult = (event) => {
-        this.disarmSilenceTimeout();
-        this.isListening = false;
-        const transcript = event.results[0]?.[0]?.transcript?.trim() || "";
-        console.log("Speech transcript:", transcript);
-        if (this.activeCallbacks.onResult) this.activeCallbacks.onResult(transcript);
-        this.handleCommand(transcript);
+        if (!event.results || event.results.length === 0) return;
+        const lastIdx = event.results.length - 1;
+        const transcript = event.results[lastIdx]?.[0]?.transcript?.trim() || "";
+        console.log("Recognized speech:", transcript);
+
+        if (transcript) {
+          this.handleCommand(transcript);
+        }
       };
 
       this.recognition.onerror = (event) => {
-        this.disarmSilenceTimeout();
         this.isListening = false;
-        const errorType = event.error || "unknown";
-        console.warn("Speech recognition error:", errorType, event);
+        const err = event.error;
+        console.warn("Speech recognition notice:", err);
 
-        let userMsg = "";
-        let isFatal = false;
-
-        switch (errorType) {
-          case "not-allowed":
-          case "service-not-allowed":
-            userMsg = "Microphone access was denied. Please allow microphone permission in browser settings.";
-            isFatal = true;
-            break;
-          case "no-speech":
-            userMsg = "No speech detected. Tap Speak Command to try again.";
-            break;
-          case "network":
-            userMsg = "Speech recognition network error. Chrome speech requires an internet connection.";
-            break;
-          case "audio-capture":
-            userMsg = "No microphone found or microphone is busy.";
-            isFatal = true;
-            break;
-          case "aborted":
-            return;
-          default:
-            userMsg = `Voice error (${errorType}). Please use touch buttons.`;
-        }
-
-        if (this.activeCallbacks.onError) {
-          this.activeCallbacks.onError({ error: errorType, message: userMsg, isFatal });
+        if (err === "not-allowed" || err === "service-not-allowed") {
+          this.continuousMode = false;
+          this.updateIndicator("Mic blocked (tap to allow)", "error");
+        } else if (err === "no-speech" || err === "aborted") {
+          // Normal on silence, let onend restart cleanly
+        } else {
+          this.updateIndicator("Voice waiting...", "active");
         }
       };
 
       this.recognition.onend = () => {
         this.isListening = false;
-        this.disarmSilenceTimeout();
-        if (this.activeCallbacks.onEnd) this.activeCallbacks.onEnd();
+        // Continuous auto-restart loop unless explicitly paused for TTS or unallowed
+        if (this.continuousMode && !this.isPausedForTTS) {
+          clearTimeout(this.restartTimer);
+          this.restartTimer = setTimeout(() => {
+            if (this.continuousMode && !this.isListening && !this.isPausedForTTS) {
+              this.startListening();
+            }
+          }, 250);
+        }
       };
 
       return true;
     } catch (e) {
-      console.error("SpeechRec init error:", e);
+      console.warn("Speech recognition initialization error:", e);
       return false;
     }
   }
 
-  // Starts native browser speech recognition
-  startListening({ onStart, onResult, onError, onEnd } = {}) {
+  // Starts continuous voice command listening
+  startListening() {
+    if (this.isPausedForTTS) return false;
     if (!this.recognition) {
-      const initialized = this.initRecognition();
-      if (!initialized) return false;
-    }
-
-    this.activeCallbacks = { onStart, onResult, onError, onEnd };
-
-    // Stop synthesis so mic doesn't hear synthetic audio
-    if (this.synth && this.synth.speaking) {
-      this.synth.cancel();
+      const ok = this.initRecognition();
+      if (!ok) return false;
     }
 
     try {
       this.recognition.abort();
     } catch {}
 
-    setTimeout(() => {
-      try {
-        this.recognition.start();
-      } catch (e) {
-        console.warn("Speech recognition start issue:", e);
-        if (onError) onError({ error: "start-failed", message: "Could not start microphone." });
+    try {
+      this.recognition.start();
+      return true;
+    } catch (e) {
+      // If already started or browser is warming up, quietly schedule next attempt
+      if (this.continuousMode && !this.isListening) {
+        clearTimeout(this.restartTimer);
+        this.restartTimer = setTimeout(() => {
+          try { this.recognition.start(); } catch {}
+        }, 500);
       }
-    }, 150);
-
-    return true;
+      return false;
+    }
   }
 
   stopListening() {
-    this.disarmSilenceTimeout();
     if (this.recognition) {
       try { this.recognition.abort(); } catch {}
     }
     this.isListening = false;
   }
 
-  armSilenceTimeout(seconds = 12) {
-    this.disarmSilenceTimeout();
-    this.silenceTimer = setTimeout(() => {
-      if (this.isListening) {
-        this.stopListening();
-        this.announce(SpokenMessages.M20_SILENCE_OR_TIMEOUT, { assertive: true });
-        if (this.handlers.onCancel) this.handlers.onCancel();
-      }
-    }, seconds * 1000);
+  // Start continuous mode (called on first user gesture or start)
+  startContinuous() {
+    this.continuousMode = true;
+    this.startListening();
   }
 
-  disarmSilenceTimeout() {
-    if (this.silenceTimer) {
-      clearTimeout(this.silenceTimer);
-      this.silenceTimer = null;
-    }
+  showRecognized(label) {
+    this.updateIndicator(`Heard: "${label}" ✓`, "recognized");
+    clearTimeout(this.statusTimer);
+    this.statusTimer = setTimeout(() => {
+      if (this.isListening) {
+        this.updateIndicator("Listening: Start · Confirm · Repeat", "listening");
+      } else {
+        this.updateIndicator("Voice Active", "active");
+      }
+    }, 2200);
   }
 
   handleCommand(text) {
-    const lower = text.toLowerCase().trim();
+    const raw = text.toLowerCase().trim();
+    if (!raw) return;
 
-    // 1. Confirm Commands
-    const confirmWords = ["yes", "confirm", "proceed", "okay", "ok", "continue", "pay", "haan", "ha", "sahi", "theek"];
-    if (confirmWords.some(w => lower === w || lower.includes(w))) {
-      this.unclearCount = 0;
-      if (this.handlers.onConfirm) this.handlers.onConfirm(lower);
+    // 1. Confirm Commands (comprehensive phonetic match including "comform", "conform", "confirm", "proceed", "yes")
+    const isConfirm = (
+      /\b(confirm|conform|comform|confam|conferm|confirmed|confirming)\b/i.test(raw) ||
+      /\b(yes|yeah|yup|proceed|continue|pay|done|ok|okay)\b/i.test(raw) ||
+      /\b(haan|ha|sahi|theek|karo)\b/i.test(raw)
+    );
+    if (isConfirm) {
+      this.showRecognized("CONFIRM");
+      if (this.handlers.onConfirm) this.handlers.onConfirm(raw);
       return;
     }
 
-    // 2. Cancel / Back Commands
-    const cancelWords = ["no", "cancel", "stop", "abort", "back", "nahi", "nahin", "ruk", "roko", "band"];
-    if (cancelWords.some(w => lower === w || lower.includes(w))) {
-      this.unclearCount = 0;
-      if (this.handlers.onCancel) this.handlers.onCancel(lower);
-      return;
-    }
-
-    // 3. Repeat Commands
-    if (lower.includes("repeat") || lower.includes("say again") || lower.includes("phir se") || lower.includes("dobara")) {
-      this.repeatLast();
-      return;
-    }
-
-    // 4. Start Navigation Commands
-    if (lower.includes("start") || lower.includes("shop") || lower.includes("inspect") || lower.includes("begin") || lower.includes("shuru")) {
+    // 2. Start Commands (start inspecting, begin, scan, shuru)
+    const isStart = (
+      /\b(start|starts|starting|begin|begins|inspect|shuru|open|go|let's go|scan)\b/i.test(raw)
+    );
+    if (isStart) {
+      this.showRecognized("START");
       if (this.handlers.onStart) this.handlers.onStart();
       return;
     }
 
-    // 5. Direct QR Scan
-    if (lower.includes("direct qr") || lower.includes("scan qr") || lower.includes("skip label")) {
+    // 3. Repeat Commands (repeat, again, say again)
+    const isRepeat = (
+      /\b(repeat|again|say again|what did you say|what|phir se|dobara|pardon)\b/i.test(raw)
+    );
+    if (isRepeat) {
+      this.showRecognized("REPEAT");
+      this.repeatLast();
+      return;
+    }
+
+    // 4. Cancel / Back Commands
+    const isCancel = (
+      /\b(cancel|stop|back|go back|abort|no|nope|nahi|nahin|ruk|roko)\b/i.test(raw)
+    );
+    if (isCancel) {
+      this.showRecognized("CANCEL");
+      if (this.handlers.onCancel) this.handlers.onCancel(raw);
+      return;
+    }
+
+    // 5. Direct QR
+    if (/\b(direct qr|skip label|skip product)\b/i.test(raw)) {
+      this.showRecognized("DIRECT QR");
       if (this.handlers.onDirectQr) this.handlers.onDirectQr();
       return;
     }
 
-    // 6. Check for spoken monetary amount (e.g., "35", "35 rupees", "fifty")
-    const extractedAmount = extractAmountFromText(lower);
+    // 6. Monetary amount (e.g. "35", "thirty five", "40 rupees")
+    const extractedAmount = extractAmountFromText(raw);
     if (extractedAmount !== null && this.handlers.onAmount) {
-      this.unclearCount = 0;
-      this.handlers.onAmount(extractedAmount, lower);
+      this.showRecognized(`₹${extractedAmount}`);
+      this.handlers.onAmount(extractedAmount, raw);
       return;
     }
 
-    // 7. General command fallback
-    if (this.handlers.onGeneral) {
-      this.handlers.onGeneral(lower);
-      return;
-    }
-
-    // 8. Unclear response handling
-    this.unclearCount++;
-    if (this.unclearCount === 1) {
-      this.announce(SpokenMessages.M19_UNCLEAR_REPLY);
-    } else {
-      this.unclearCount = 0;
-      this.announce(SpokenMessages.M20_SILENCE_OR_TIMEOUT, { assertive: true });
-      if (this.handlers.onCancel) this.handlers.onCancel();
-    }
+    // Ambient chatter that doesn't match a command is quietly ignored in continuous mode
+    console.log("Speech ignored (no command matched):", raw);
   }
 
   registerActions({ onConfirm, onCancel, onRepeat, onStart, onDirectQr, onAmount, onGeneral }) {
     this.handlers = { onConfirm, onCancel, onRepeat, onStart, onDirectQr, onAmount, onGeneral };
-  }
-
-  // Fallback: direct audio recording to backend Gemini STT
-  async recordAudioCommand({ onStart, onTranscript, onError } = {}) {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      if (onError) onError("Microphone API not supported on this browser.");
-      return;
-    }
-
-    try {
-      if (this.synth && this.synth.speaking) {
-        this.synth.cancel();
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      const audioChunks = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunks.push(e.data);
-      };
-
-      mediaRecorder.onstart = () => {
-        this.isListening = true;
-        if (onStart) onStart();
-      };
-
-      mediaRecorder.onstop = async () => {
-        this.isListening = false;
-        stream.getTracks().forEach(t => t.stop());
-        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-
-        try {
-          const { transcribeVoiceAudio } = await import("./api.js");
-          const result = await transcribeVoiceAudio(audioBlob);
-          console.log("Audio transcribed via backend:", result);
-          if (onTranscript) onTranscript(result);
-          if (result.command) {
-            this.handleCommand(result.command);
-          } else if (result.text) {
-            this.handleCommand(result.text);
-          }
-        } catch (err) {
-          console.warn("Backend STT error:", err);
-          if (onError) onError(err);
-        }
-      };
-
-      mediaRecorder.start();
-
-      setTimeout(() => {
-        if (mediaRecorder.state === "recording") {
-          mediaRecorder.stop();
-        }
-      }, 3500);
-
-    } catch (err) {
-      console.error("Audio recording error:", err);
-      if (onError) onError(err);
-    }
   }
 }
 
