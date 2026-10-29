@@ -46,16 +46,12 @@
       <h1 id="welcome-title">Know what you pay before you pay.</h1>
       <p class="lead">DrishtiPay checks prices from product labels and verifies UPI QR codes so you never pay the wrong amount.</p>
       
-      <!-- Split Screen Touch Zones (Massive targets for blind navigation) -->
-      <div class="split-zones">
-        <button id="start-button" class="giant-zone zone-confirm primary" type="button" aria-label="Start Inspecting Product. Tap top of screen.">
+      <!-- Large Start Screen Target (Dominates screen on mobile) -->
+      <div class="welcome-start-container">
+        <button id="start-button" class="giant-zone zone-confirm primary" type="button" aria-label="Start Inspecting Product. Tap anywhere on screen or say Start.">
+          <span class="zone-icon" aria-hidden="true">📸</span>
           <span class="zone-title">START INSPECTING</span>
-          <span class="zone-sub">Tap top half of screen or say "Start"</span>
-        </button>
-
-        <button id="direct-qr-button" class="giant-zone zone-secondary" type="button" aria-label="Skip product and Scan Payment QR directly.">
-          <span class="zone-title">SCAN QR DIRECTLY</span>
-          <span class="zone-sub">Skip label and pay agreed amount</span>
+          <span class="zone-sub">Tap anywhere on screen or say "Start"</span>
         </button>
       </div>
 
@@ -94,35 +90,57 @@
       </div>
     </section>
 
-    <!-- STEP 3: CONFIRM INTENDED AMOUNT -->
+    <!-- STEP 3: LABEL DETAILS & DETECTED PRICE REVIEW -->
     <section id="product-review" class="page" hidden aria-labelledby="product-review-title">
-      <p class="eyebrow">STEP 3 · AMOUNT CONFIRMATION</p>
-      <h1 id="product-review-title">Confirm Intended Amount</h1>
-      <p id="product-readout-lead" class="lead">Enter or confirm the amount you agreed to pay.</p>
+      <p class="eyebrow">STEP 3 · PRODUCT ANALYSIS</p>
+      <h1 id="product-review-title">Product & Price Review</h1>
+      <p id="product-readout-lead" class="lead">Review the detected price from the product label below.</p>
+
+      <!-- Prominent Detected Price Warning Banner -->
+      <div id="detected-price-card" class="detected-price-alert match" role="status" aria-live="polite">
+        <div class="alert-header">
+          <span class="alert-icon">⚠️</span>
+          <span class="alert-tag">PRICE DETECTED ON LABEL</span>
+        </div>
+        <div id="detected-price-value" class="alert-amount">₹0.00</div>
+        <p class="alert-desc">Check if this matches what you agreed to pay before scanning merchant QR.</p>
+      </div>
+
+      <!-- Price Missing Warning Banner (Shown if price is absent) -->
+      <div id="missing-price-card" class="detected-price-alert mismatch" role="alert" hidden>
+        <div class="alert-header">
+          <span class="alert-icon">⚠️</span>
+          <span class="alert-tag">NO PRICE DETECTED</span>
+        </div>
+        <div class="alert-amount" style="font-size: 1.6rem;">Price Not Found</div>
+        <p class="alert-desc">Could not find a printed MRP on this label. Please re-scan with camera.</p>
+      </div>
+
+      <!-- Direct Product Label Information (Open, No Dropdown Slide) -->
+      <div class="product-details-card">
+        <h2 class="card-heading">Product Details</h2>
+        <div class="detail-row">
+          <span class="detail-label">Product:</span>
+          <span id="detail-product-name" class="detail-value">Package</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Printed MRP:</span>
+          <span id="detail-printed-mrp" class="detail-value">Not visible</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Expiry / Date:</span>
+          <span id="detail-expiry-date" class="detail-value">Not visible</span>
+        </div>
+      </div>
 
       <form id="product-form" novalidate>
-        <div class="amount-field-container">
-          <label for="intended-amount" class="big-label">Amount you intend to pay (₹):</label>
-          <div class="amount-input giant-input">
-            <span aria-hidden="true">₹</span>
-            <input id="intended-amount" required inputmode="decimal" autocomplete="off" aria-label="Amount you intend to pay in rupees" placeholder="0.00" />
-          </div>
-        </div>
-
-        <!-- Secondary read-only label context (optional) -->
-        <details class="context-details">
-          <summary>Label context read by AI (Printed MRP: <span id="mrp-preview-badge">none</span>)</summary>
-          <div class="label-context-grid">
-            <div><label for="product-name">Product:</label><input id="product-name" readonly /></div>
-            <div><label for="printed-mrp">Printed MRP:</label><input id="printed-mrp" readonly /></div>
-            <div><label for="expiry-date">Expiry:</label><input id="expiry-date" readonly /></div>
-          </div>
-        </details>
+        <!-- Hidden input for intended amount passed to verification flow -->
+        <input id="intended-amount" type="hidden" />
 
         <div class="split-zones">
-          <button id="confirm-details" class="giant-zone zone-confirm primary" type="submit">
-            <span class="zone-title">CONFIRM AMOUNT</span>
-            <span class="zone-sub">Tap top half to proceed to QR scan</span>
+          <button id="confirm-details" class="giant-zone zone-confirm primary" type="submit" data-action="confirm">
+            <span class="zone-title" id="confirm-zone-title">CONFIRM AMOUNT</span>
+            <span class="zone-sub" id="confirm-zone-sub">Tap top half to proceed to QR scan</span>
           </button>
           
           <button class="btn-cancel giant-zone zone-cancel secondary" type="button">

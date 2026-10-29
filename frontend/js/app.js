@@ -79,8 +79,7 @@ async function navigateTo(targetPageId, announcementText = null) {
   } else if (targetPageId === "qr-scan") {
     await autoStartQrCamera();
   } else if (targetPageId === "product-review") {
-    // Automatically focus the intended amount input
-    setTimeout(() => $("intended-amount")?.focus(), 400);
+    setTimeout(() => $("confirm-details")?.focus(), 400);
   }
 }
 
@@ -223,27 +222,54 @@ async function processLabelFile(file) {
 
     stopActiveCamera();
 
-    const readoutMsg = cleanMrp
-      ? `Found printed MRP of ${cleanMrp} rupees for ${prodName}. Tap top of screen to confirm, or enter your agreed amount.`
-      : `Read product ${prodName}, but could not confirm a printed MRP. Enter the amount you intend to pay.`;
+    const priceDetectedCard = $("detected-price-card");
+    const missingPriceCard = $("missing-price-card");
+    const priceValueEl = $("detected-price-value");
+    const confirmTitle = $("confirm-zone-title");
+    const confirmSub = $("confirm-zone-sub");
+    const confirmBtn = $("confirm-details");
 
-    await navigateTo("product-review", readoutMsg);
+    const detailProdName = $("detail-product-name");
+    const detailMrp = $("detail-printed-mrp");
+    const detailExp = $("detail-expiry-date");
 
-    if ($("product-name")) $("product-name").value = prodName;
-    if ($("printed-mrp")) $("printed-mrp").value = cleanMrp ? `₹${cleanMrp}` : (rawMrpText || "Not visible");
-    if ($("expiry-date")) $("expiry-date").value = expDate;
-
-    const mrpBadge = $("mrp-preview-badge");
-    if (mrpBadge) mrpBadge.textContent = cleanMrp ? `₹${cleanMrp}` : (rawMrpText || "none");
+    if (detailProdName) detailProdName.textContent = prodName;
+    if (detailMrp) detailMrp.textContent = cleanMrp ? `₹${cleanMrp}` : (rawMrpText || "Not visible");
+    if (detailExp) detailExp.textContent = expDate;
 
     const intendedInput = $("intended-amount");
     if (intendedInput) {
       intendedInput.value = cleanMrp || "";
-      intendedInput.placeholder = cleanMrp || "0.00";
+    }
+
+    let readoutMsg = "";
+    if (cleanMrp) {
+      if (priceDetectedCard) priceDetectedCard.hidden = false;
+      if (missingPriceCard) missingPriceCard.hidden = true;
+      if (priceValueEl) priceValueEl.textContent = `₹${cleanMrp}`;
+      if (confirmTitle) confirmTitle.textContent = `CONFIRM ₹${cleanMrp}`;
+      if (confirmSub) confirmSub.textContent = "Tap top half to proceed to QR scan, or say Confirm";
+      if (confirmBtn) {
+        confirmBtn.className = "giant-zone zone-confirm primary";
+        confirmBtn.dataset.action = "confirm";
+      }
+      readoutMsg = `Warning: Detected printed MRP of ${cleanMrp} rupees for ${prodName}. Tap top of screen to confirm, or say Confirm.`;
+    } else {
+      if (priceDetectedCard) priceDetectedCard.hidden = true;
+      if (missingPriceCard) missingPriceCard.hidden = false;
+      if (confirmTitle) confirmTitle.textContent = "📸 RE-SCAN PRODUCT";
+      if (confirmSub) confirmSub.textContent = "No price detected. Tap to open camera and scan again";
+      if (confirmBtn) {
+        confirmBtn.className = "giant-zone zone-secondary";
+        confirmBtn.dataset.action = "rescan";
+      }
+      readoutMsg = `Warning: Read product ${prodName}, but could not find a printed price on this label. Tap top of screen to re-scan.`;
     }
 
     const leadEl = $("product-readout-lead");
     if (leadEl) leadEl.textContent = readoutMsg;
+
+    await navigateTo("product-review", readoutMsg);
 
   } catch (err) {
     console.warn("OCR read error:", err);
@@ -524,6 +550,22 @@ document.addEventListener("DOMContentLoaded", () => {
       const intendedInput = $("intended-amount");
       if (intendedInput) {
         intendedInput.value = rupees;
+        const priceDetectedCard = $("detected-price-card");
+        const missingPriceCard = $("missing-price-card");
+        const priceValueEl = $("detected-price-value");
+        const confirmTitle = $("confirm-zone-title");
+        const confirmSub = $("confirm-zone-sub");
+        const confirmBtn = $("confirm-details");
+
+        if (priceDetectedCard) priceDetectedCard.hidden = false;
+        if (missingPriceCard) missingPriceCard.hidden = true;
+        if (priceValueEl) priceValueEl.textContent = `₹${rupees}`;
+        if (confirmTitle) confirmTitle.textContent = `CONFIRM ₹${rupees}`;
+        if (confirmSub) confirmSub.textContent = "Tap top half to proceed to QR scan, or say Confirm";
+        if (confirmBtn) {
+          confirmBtn.className = "giant-zone zone-confirm primary";
+          confirmBtn.dataset.action = "confirm";
+        }
         announceState(`Amount set to ${rupees} rupees. Tap Confirm or say Confirm to proceed.`, { soundCue: "detected" });
       }
     }
@@ -570,13 +612,29 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Step 3: Confirm Intended Amount
+  // Step 3: Confirm Detected Amount or Re-scan
+  $("confirm-details")?.addEventListener("click", (e) => {
+    const action = $("confirm-details")?.dataset?.action;
+    if (action === "rescan") {
+      e.preventDefault();
+      flow.start();
+      navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+    }
+  });
+
   $("product-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const action = $("confirm-details")?.dataset?.action;
+    if (action === "rescan") {
+      flow.start();
+      navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+      return;
+    }
+
     const paise = parseRupeesToPaise($("intended-amount").value);
     if (!Number.isInteger(paise) || paise <= 0) {
-      announceState("Please enter a valid positive amount in rupees.", { assertive: true, soundCue: "alert" });
-      $("intended-amount")?.focus();
+      announceState("No price detected on label. Tap Re-Scan to scan product again.", { assertive: true, soundCue: "alert" });
+      navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
       return;
     }
 
