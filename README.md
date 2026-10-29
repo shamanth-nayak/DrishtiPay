@@ -1,93 +1,96 @@
 # DrishtiPay
 
-DrishtiPay is a voice-first payment amount checker for blind and low-vision shoppers in India. It helps a user confirm the amount they intend to pay, compare it with the amount in a UPI QR code, and hear the result before opening their own UPI app.
+**A voice-first payment amount verification tool for blind and low-vision shoppers in India.**
 
-## About
+DrishtiPay helps users scan product labels, build a shopping list, compare its total with the amount in a merchant's UPI QR code, and hear the result before proceeding to payment.
 
-**NMAMIT Hackloop**
+## Features
 
-This project idea was made for the Hackloop 2026 event held by the Finite Loop Club.
+- **Voice guidance:** Spoken feedback throughout the workflow.
+- **Product scanning:** Read prices from camera images or uploads using Google Gemini, or enter them manually.
+- **Shopping list:** Add multiple products, edit quantities and prices, and calculate totals accurately in paise.
+- **UPI QR comparison:** Identify amount mismatches and QR codes without an embedded amount.
+- **Mobile-friendly UI:** Designed for small screens.
+- **Demo mode:** Try supported demo functionality without a Gemini API key.
 
-This was built exclusively for Hackloop '26.
+## Workflow
 
-> **Status:** Fully tested.
+1. **Scan a product:** Capture the product label with the camera or upload an image.
 
-## How it works
+   ![Product camera screen](docs/screenshots/product-camera.jpg)
 
-1. Read the product label (camera or upload), or scan the QR directly.
-2. Confirm the amount you intend to pay.
-3. Scan the UPI QR and compare amounts.
-4. Hear the result, then explicitly confirm to continue to your UPI app.
+2. **Review product details:** Check the detected product name, brand, price, and quantity. Edit the details if needed.
 
-## Screens
+   ![Product details screen](docs/screenshots/product-details.jpg)
 
-### Start
+3. **Build the shopping list:** Add products and review the quantities, unit prices, and total.
 
-![Start](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/01-start.jpg)
+   ![Shopping list screen](docs/screenshots/shopping-list.jpg)
 
-### Camera
+4. **Compare and confirm:** Scan the merchant's UPI QR code, listen to the amount comparison, and explicitly confirm before opening the UPI app.
 
-![Camera](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/02-camera.jpg)
+   ![Amount confirmation screen](docs/screenshots/amount-confirmation.jpg)
 
-### Confirm amount
+## Installation
 
-![Confirm amount](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/03-confirm-amount.jpg)
+**Requirements:** Node.js 18+, Python 3.10+, and Git.
 
-### Review
-
-![Review](https://raw.githubusercontent.com/shamanth-nayak/DrishtiPay/main/docs/screenshots/04-review.jpg)
-
-## Running the project
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) and npm installed.
-- Git installed, or a downloaded copy of the project.
-
-### 1. Install dependencies
-
-Open a terminal in the project root directory and run:
-```
+```bash
+git clone https://github.com/shamanth-nayak/DrishtiPay.git
+cd DrishtiPay
 npm install
-
+pip install -r backend/requirements.txt
 ```
 
-### 2. Start the application
-```
-npm start
+Optional: create or edit `backend/.env`:
 
-```
-
-The server should start at:
-```
-http://localhost:5173
-
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-Open this URL in your browser to use DrishtiPay.
+## Run the Application
 
-### 3. Stop the application
+**Windows:** Double-click `run_app.bat`.
 
-Press `Ctrl + C` in the terminal.
+Or start the services manually in separate terminals.
 
-### Notes
+```bash
+node server.mjs
+```
 
-- Allow camera access when prompted.
-- Camera access on a phone may require HTTPS or another secure context.
-- This prototype checks payment amounts; it does not process payments or verify merchants.
+```bash
+python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+```
 
-## Planned stack
+Open `http://localhost:5173` in your browser. Mobile camera access may require HTTPS or another secure context.
 
-**Major:** OpenCV
+## Testing
 
-**Minor:** React, TypeScript, Vite · Python, FastAPI · EasyOCR · ZXing · browser speech
+```bash
+npm test
+python -m unittest backend/test_verification.py
+```
 
-## Limitations
+The project reports 28 passing automated tests.
 
-- Does not process payments, handle PINs, verify merchants or detect fraud.
-- A match only means two amounts are equal.
-- OCR can be wrong, so the user confirms every price.
+## Tech Stack
 
-## Future
+- **Frontend:** React, TypeScript, Vite
+- **Backend:** Python, FastAPI
+- **Server:** Node.js
+- **AI:** Google Gemini API
+- **Computer vision:** OpenCV
+- **QR scanning:** ZXing
+- **Accessibility:** Browser speech synthesis
 
-Better voice commands, more languages, testing on more devices and with more users.
+## Security and Limitations
+
+- DrishtiPay does not process payments or handle UPI PINs.
+- It compares amounts but does not verify merchants or detect fraud.
+- Users can review and edit scanned product details.
+- Users must explicitly confirm before the UPI app opens.
+
+## Future Improvements
+
+More languages, improved voice commands, broader device testing, and usability testing with blind and low-vision users.
