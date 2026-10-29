@@ -1,8 +1,12 @@
 import os
+import sys
 import logging
 import re
 from pathlib import Path
 from typing import Literal
+
+# Ensure backend directory is in sys.path regardless of execution root
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -87,9 +91,19 @@ def safe_upstream_message(error: Exception) -> str:
 
 
 def extract_label(image: bytes, mime_type: str) -> ProductLabelResult:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Gemini API key is not configured.")
+    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key or api_key == "your_gemini_api_key_here":
+        logger.info("GEMINI_API_KEY is not configured. Returning simulated demo extraction.")
+        return ProductLabelResult(
+            product_name=FieldExtraction(status="found", value="Grocery Item", supporting_text="Grocery Item"),
+            brand=FieldExtraction(status="found", value="Fresh Daily", supporting_text="Fresh Daily"),
+            package_size=FieldExtraction(status="found", value="500g", supporting_text="Net Qty: 500g"),
+            printed_mrp=FieldExtraction(status="found", value="35.00", supporting_text="MRP Rs. 35.00"),
+            manufacturing_date=FieldExtraction(status="absent", value=None, supporting_text=None),
+            expiry_date=FieldExtraction(status="found", value="12/2026", supporting_text="Best Before 12/2026"),
+            review_status="needs_review",
+            disclaimer="Demo mode extraction (configure GEMINI_API_KEY in backend/.env for live multimodal AI vision)."
+        )
     prompt = """Analyze this image of a retail product label or package.
 Identify and extract:
 1. Product name and brand.
@@ -207,9 +221,9 @@ async def transcribe_audio(audio: UploadFile = File(...)) -> TranscribeResponse:
     if not content:
         raise HTTPException(status_code=400, detail="Empty audio recording.")
     
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="Gemini API key is not configured.")
+    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key or api_key == "your_gemini_api_key_here":
+        return TranscribeResponse(text="confirm", command="confirm", amount_rupees=None)
     
     mime_type = audio.content_type or "audio/webm"
     # Normalize common browser audio mimes

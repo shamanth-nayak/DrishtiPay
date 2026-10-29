@@ -699,3 +699,399 @@ h1 {
   max-width: 65%;
   word-break: break-word;
 }
+
+/* Product Edit Fields (Price & Quantity) */
+.product-edit-fields {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 2px solid #334155;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 600px) {
+  .product-edit-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-label {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #cbd5e1;
+}
+
+.text-input {
+  background: #0f172a;
+  border: 2px solid #64748b;
+  border-radius: 10px;
+  color: #ffffff;
+  font-size: 1.25rem;
+  font-weight: 800;
+  padding: 12px 14px;
+  min-height: 52px;
+  width: 100%;
+}
+.text-input:focus {
+  border-color: var(--focus);
+  outline: 4px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Quantity Control (+ / -) */
+.qty-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qty-btn {
+  background: #334155;
+  color: #ffffff;
+  border: 2px solid #64748b;
+  border-radius: 10px;
+  font-size: 1.5rem;
+  font-weight: 900;
+  width: 52px;
+  height: 52px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.qty-btn:active {
+  background: #475569;
+  transform: scale(0.95);
+}
+
+.qty-input {
+  text-align: center;
+  width: 80px;
+  font-size: 1.35rem;
+}
+
+/* ============================================================
+   MINIMALIST SINGLE-VIEWPORT SHOPPING-LIST SCREEN (Per Hand-Drawn Reference)
+   Scoped strictly to #shopping-list to avoid affecting other pages
+   ============================================================ */
+
+/* Mobile shell adjustment when shopping list is active */
+.shell.shopping-list-active {
+  padding: 8px 12px 12px;
+  max-width: 460px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+#shopping-list.page {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+#shopping-list.page.active {
+  display: flex !important;
+  flex-direction: column;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 auto;
+  max-height: calc(100dvh - 90px);
+  min-height: auto;
+  overflow: hidden;
+}
+
+/* Card Container */
+.sl-container {
+  display: flex;
+  flex-direction: column;
+  background: #0f1c2e;
+  border: 1.5px solid #334155;
+  border-radius: 16px;
+  padding: 14px 16px 14px;
+  box-sizing: border-box;
+  width: 100%;
+  max-height: calc(100dvh - 100px);
+  overflow: hidden;
+}
+
+/* 1. Compact Heading: Product Details */
+.sl-header {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+
+.sl-title {
+  font-size: clamp(1.25rem, 4vw, 1.45rem);
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.2;
+  text-align: left;
+}
+
+/* 2. Product list with three columns: Name | Quantity | Price */
+.sl-list-wrapper {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: calc(100dvh - 280px);
+  min-height: 80px;
+  margin-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom compact scrollbar for list only when overflowing */
+.sl-list-wrapper::-webkit-scrollbar {
+  width: 4px;
+}
+.sl-list-wrapper::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.sl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  color: #ffffff;
+}
+
+.sl-table th {
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 4px 8px;
+  border-bottom: 1.5px solid #334155;
+}
+
+.sl-col-name {
+  width: 54%;
+  text-align: left;
+}
+.sl-col-qty {
+  width: 18%;
+  text-align: center;
+}
+.sl-col-price {
+  width: 28%;
+  text-align: right;
+}
+
+.sl-table td {
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: middle;
+  font-size: 0.95rem;
+}
+
+.sl-table tr:last-child td {
+  border-bottom: none;
+}
+
+.sl-cell-name {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  word-break: break-word;
+  color: #f8fafc;
+}
+
+.sl-item-index {
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.sl-item-name {
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.sl-brand {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+.sl-cell-qty {
+  text-align: center;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.sl-cell-price {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sl-price-val {
+  font-weight: 800;
+  color: #ffffff;
+  font-size: 0.98rem;
+}
+
+.sl-remove-btn {
+  background: transparent;
+  border: none;
+  color: #f87171;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 4px 4px 4px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+  line-height: 1;
+}
+.sl-remove-btn:hover, .sl-remove-btn:active {
+  color: #ef4444;
+  transform: scale(1.1);
+}
+
+.empty-list-notice {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.95rem;
+  padding: 20px 0;
+  margin: 0;
+}
+
+/* 3. Horizontal divider */
+.sl-divider {
+  height: 1.5px;
+  background: #475569;
+  margin: 6px 0 8px;
+  flex-shrink: 0;
+}
+
+/* 4. Clearly visible Total: ₹XX.XX */
+.sl-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 2px 10px;
+  flex-shrink: 0;
+}
+
+.sl-total-label {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.sl-total-amount {
+  font-size: 1.55rem;
+  font-weight: 900;
+  color: #5eead4;
+}
+
+/* 5. Buttons Layout */
+.sl-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sl-btn-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.sl-btn {
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 12px;
+  transition: transform 0.1s ease, filter 0.15s ease;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+.sl-btn:active {
+  transform: scale(0.97);
+}
+
+/* Green Button (ADD ITEM) - on the left */
+.sl-btn-green {
+  flex: 1;
+  background: #15803d;
+  color: #ffffff;
+  border: 2px solid #22c55e;
+}
+.sl-btn-green:hover {
+  background: #166534;
+}
+
+/* Yellow Button (Continue to Pay) - on the right */
+.sl-btn-yellow {
+  flex: 1;
+  background: #eab308;
+  color: #050d18;
+  border: 2px solid #fef08a;
+  font-weight: 900;
+}
+.sl-btn-yellow:hover {
+  background: #ca8a04;
+}
+
+/* Red Button (Back / Cancel) - underneath, full width */
+.sl-btn-red {
+  width: 100%;
+  min-height: 46px;
+  background: #b91c1c;
+  color: #ffffff;
+  border: 2px solid #f87171;
+}
+.sl-btn-red:hover {
+  background: #991b1b;
+}
+
+/* Compact screen height adjustments (screens under 680px tall) */
+@media (max-height: 680px) {
+  .sl-container {
+    padding: 10px 12px 10px;
+    max-height: calc(100dvh - 80px);
+  }
+  .sl-title {
+    font-size: 1.2rem;
+  }
+  .sl-table td {
+    padding: 6px 4px;
+    font-size: 0.88rem;
+  }
+  .sl-total-label {
+    font-size: 1.2rem;
+  }
+  .sl-total-amount {
+    font-size: 1.35rem;
+  }
+  .sl-btn {
+    min-height: 44px;
+    font-size: 0.92rem;
+    padding: 8px 10px;
+  }
+  .sl-btn-red {
+    min-height: 42px;
+  }
+}
+

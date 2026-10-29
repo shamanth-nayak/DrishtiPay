@@ -150,3 +150,22 @@ export function createSafeUpiLink(parsedQr) {
   if (parsedQr.payeeName) params.set("pn", parsedQr.payeeName);
   return `upi://pay?${params.toString()}`;
 }
+
+/** Calculates subtotal in paise for an item given unit price in paise and integer quantity. */
+export function calculateItemSubtotal(unitPricePaise, quantity = 1) {
+  if (!Number.isInteger(unitPricePaise) || unitPricePaise <= 0) return null;
+  const q = Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+  return unitPricePaise * q;
+}
+
+/** Calculates total in paise from an array of shopping items. */
+export function calculateShoppingTotal(items = []) {
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((sum, item) => {
+    const sub = Number.isInteger(item?.subtotalPaise) && item.subtotalPaise > 0 
+      ? item.subtotalPaise 
+      : 0;
+    return sum + sub;
+  }, 0);
+}
+

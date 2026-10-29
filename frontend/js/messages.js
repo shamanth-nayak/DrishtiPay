@@ -29,7 +29,15 @@ export const SpokenMessages = Object.freeze({
   M25_ASK_OUTCOME: "Did the payment complete? Please check your UPI app. Say paid, failed, cancelled, still waiting, or not sure.",
   M26_REPORTED_PAID: "You reported the payment as completed. I could not verify this myself.",
   M27_REPORTED_STATUS: (status) => `You reported the payment as ${status}. I could not verify this myself.`,
-  M28_UNKNOWN_OUTCOME: "The payment status is unknown. Please check your UPI app history before assuming anything."
+  M28_UNKNOWN_OUTCOME: "The payment status is unknown. Please check your UPI app history before assuming anything.",
+  M30_PRODUCT_ADDED: (name, qty, subtotal, total) => `Added ${qty} ${name}, subtotal ${subtotal}. Total shopping amount is ${total}.`,
+  M31_PRODUCT_REMOVED: (name, total) => `Removed ${name} from shopping list. Total shopping amount is now ${total}.`,
+  M32_SHOPPING_LIST_SUMMARY: (count, total) => `Shopping list has ${count} item${count === 1 ? "" : "s"}. Total shopping amount is ${total}.`,
+  M33_LIST_CLEARED: "Shopping list cleared. Total is zero rupees.",
+  M34_PROCEED_TO_QR_WITH_TOTAL: (total) => `Total shopping amount is ${total}. Point camera at merchant payment QR code and hold steady.`,
+  M35_MISSING_PRICE_WARNING: "No price detected on label. Please enter or speak the price before adding to shopping list.",
+  M36_EMPTY_LIST_WARNING: "Your shopping list is empty. Add a product before proceeding to payment verification.",
+  M37_CONFIRM_CLEAR_LIST: "Are you sure you want to clear your shopping list? Tap Confirm Clear to empty your list, or tap anywhere else to keep items."
 });
 
 export const FORBIDDEN_WORDS = ["safe", "verified merchant", "payment successful", "secure"];

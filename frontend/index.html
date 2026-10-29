@@ -90,14 +90,14 @@
       <h1 id="product-review-title">Product & Price Review</h1>
       <p id="product-readout-lead" class="lead">Review the detected price from the product label below.</p>
 
-      <!-- Prominent Detected Price Warning Banner -->
-      <div id="detected-price-card" class="detected-price-alert match" role="status" aria-live="polite">
+      <!-- Prominent Detected Price Warning Banner (Hidden until a real price is detected) -->
+      <div id="detected-price-card" class="detected-price-alert match" role="status" aria-live="polite" hidden>
         <div class="alert-header">
           <span class="alert-icon">⚠️</span>
           <span class="alert-tag">PRICE DETECTED ON LABEL</span>
         </div>
         <div id="detected-price-value" class="alert-amount">₹0.00</div>
-        <p class="alert-desc">Check if this matches what you agreed to pay before scanning merchant QR.</p>
+        <p class="alert-desc">Check if this matches what you agreed to pay before proceeding.</p>
       </div>
 
       <!-- Price Missing Warning Banner (Shown if price is absent) -->
@@ -107,15 +107,19 @@
           <span class="alert-tag">NO PRICE DETECTED</span>
         </div>
         <div class="alert-amount" style="font-size: 1.6rem;">Price Not Found</div>
-        <p class="alert-desc">Could not find a printed MRP on this label. Please re-scan with camera.</p>
+        <p class="alert-desc">Could not find a printed MRP on this label. Please enter the price below or re-scan.</p>
       </div>
 
-      <!-- Direct Product Label Information (Open, No Dropdown Slide) -->
+      <!-- Direct Product Label Information -->
       <div class="product-details-card">
         <h2 class="card-heading">Product Details</h2>
         <div class="detail-row">
           <span class="detail-label">Product:</span>
           <span id="detail-product-name" class="detail-value">Package</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Brand:</span>
+          <span id="detail-brand-name" class="detail-value">Not visible</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">Printed MRP:</span>
@@ -125,6 +129,22 @@
           <span class="detail-label">Expiry / Date:</span>
           <span id="detail-expiry-date" class="detail-value">Not visible</span>
         </div>
+
+        <!-- Editable Price and Quantity Controls -->
+        <div class="product-edit-fields">
+          <div class="input-group">
+            <label for="review-unit-price" class="input-label">Unit Price (₹):</label>
+            <input id="review-unit-price" class="text-input" type="text" inputmode="decimal" placeholder="e.g. 35.00" aria-label="Unit price in rupees" />
+          </div>
+          <div class="input-group">
+            <label for="review-quantity" class="input-label">Quantity:</label>
+            <div class="qty-control">
+              <button id="qty-minus-btn" class="qty-btn" type="button" aria-label="Decrease quantity">−</button>
+              <input id="review-quantity" class="text-input qty-input" type="number" min="1" max="99" value="1" aria-label="Product quantity" />
+              <button id="qty-plus-btn" class="qty-btn" type="button" aria-label="Increase quantity">+</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <form id="product-form" novalidate>
@@ -132,22 +152,89 @@
         <input id="intended-amount" type="hidden" />
 
         <div class="split-zones">
-          <button id="confirm-details" class="giant-zone zone-confirm primary" type="submit" data-action="confirm">
-            <span class="zone-title" id="confirm-zone-title">CONFIRM AMOUNT</span>
-            <span class="zone-sub" id="confirm-zone-sub">Tap top half to proceed to QR scan</span>
+          <button id="btn-add-another" class="giant-zone zone-confirm primary" type="button">
+            <span class="zone-title">➕ ADD ANOTHER PRODUCT</span>
+            <span class="zone-sub">Save item & return to scanner</span>
           </button>
-          
+
+          <button id="btn-continue-summary" class="giant-zone zone-secondary" type="button">
+            <span class="zone-title">🛒 CONTINUE TO PAYMENT VERIFICATION</span>
+            <span class="zone-sub">Save item & review shopping list</span>
+          </button>
+
+          <button id="btn-view-shopping-list" class="giant-zone zone-secondary" type="button" hidden>
+            <span class="zone-title">📋 VIEW SHOPPING LIST</span>
+            <span class="zone-sub" id="view-shopping-list-sub">0 items in list</span>
+          </button>
+
+          <button id="btn-rescan-product" class="giant-zone zone-cancel secondary" type="button">
+            <span class="zone-title">📸 RE-SCAN PRODUCT</span>
+            <span class="zone-sub">Discard this scan and re-take photo</span>
+          </button>
+
           <button class="btn-cancel giant-zone zone-cancel secondary" type="button">
             <span class="zone-title">CANCEL / GO BACK</span>
-            <span class="zone-sub">Tap bottom half to start over</span>
+            <span class="zone-sub">Start over from home screen</span>
           </button>
         </div>
       </form>
     </section>
 
-    <!-- STEP 4: AUTONOMOUS PAYMENT QR SCAN -->
+    <!-- STEP 4: SHOPPING LIST / PRODUCT DETAILS SCREEN -->
+    <section id="shopping-list" class="page shopping-list-page" hidden aria-labelledby="shopping-list-title">
+      <div class="sl-container">
+        <!-- 1. Compact heading: Product Details -->
+        <header class="sl-header">
+          <h1 id="shopping-list-title" class="sl-title">Product Details</h1>
+        </header>
+
+        <!-- 2. Product list with three columns: Name | Quantity | Price -->
+        <div class="sl-list-wrapper" role="region" aria-label="Shopping items list">
+          <table class="sl-table">
+            <caption class="sr-only">Product details listing name, quantity, and price</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="sl-col-name">Name</th>
+                <th scope="col" class="sl-col-qty">Quantity</th>
+                <th scope="col" class="sl-col-price">Price</th>
+              </tr>
+            </thead>
+            <tbody id="shopping-list-tbody">
+              <!-- Dynamically populated rows -->
+            </tbody>
+          </table>
+          <p id="empty-list-notice" class="empty-list-notice" hidden>No products added yet.</p>
+        </div>
+
+        <!-- 3. Horizontal divider -->
+        <div class="sl-divider" aria-hidden="true"></div>
+
+        <!-- 4. Clearly visible Total: ₹XX.XX -->
+        <div class="sl-total-row">
+          <span class="sl-total-label">Total</span>
+          <span id="shopping-total-display" class="sl-total-amount">₹0.00</span>
+        </div>
+
+        <!-- 5. Two buttons side by side (ADD ITEM on left, Continue to Pay on right) + 6. Full-width Back / Cancel button -->
+        <div class="sl-actions">
+          <div class="sl-btn-row">
+            <button id="summary-add-another-btn" class="sl-btn sl-btn-green" type="button" aria-label="Add item">
+              ADD ITEM
+            </button>
+            <button id="summary-proceed-pay-btn" class="sl-btn sl-btn-yellow" type="button" aria-label="Continue to pay">
+              Continue to Pay
+            </button>
+          </div>
+          <button id="summary-back-btn" class="sl-btn sl-btn-red" type="button" aria-label="Back or cancel">
+            Back / Cancel
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 5: AUTONOMOUS PAYMENT QR SCAN -->
     <section id="qr-scan" class="page" hidden aria-labelledby="qr-scan-title">
-      <p class="eyebrow">STEP 4 · MERCHANT QR CAMERA</p>
+      <p class="eyebrow">STEP 5 · MERCHANT QR CAMERA</p>
       <h1 id="qr-scan-title">Point Camera At Payment QR</h1>
       <p class="lead">Camera is live and scanning automatically. As soon as the merchant's QR is in view, it will beep and verify.</p>
 
@@ -178,9 +265,9 @@
       </div>
     </section>
 
-    <!-- STEP 5: VERIFICATION RESULT -->
+    <!-- STEP 6: VERIFICATION RESULT -->
     <section id="verification" class="page" hidden aria-labelledby="verification-title">
-      <p class="eyebrow">STEP 5 · VERIFICATION RESULT</p>
+      <p class="eyebrow">STEP 6 · VERIFICATION RESULT</p>
       <h1 id="verification-title">Amount Verification</h1>
       
       <div id="result" class="result neutral" role="region" aria-live="assertive">
@@ -203,9 +290,9 @@
       </div>
     </section>
 
-    <!-- STEP 6: PAYMENT CONSENT & HANDOFF (Split Screen Touch Zones) -->
+    <!-- STEP 7: PAYMENT CONSENT & HANDOFF (Split Screen Touch Zones) -->
     <section id="payment-consent" class="page" hidden aria-labelledby="consent-title">
-      <p class="eyebrow">STEP 6 · FINAL CONSENT</p>
+      <p class="eyebrow">STEP 7 · FINAL CONSENT</p>
       <h1 id="consent-title">Open Your UPI App?</h1>
       
       <div class="notice">

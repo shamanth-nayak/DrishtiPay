@@ -6,6 +6,7 @@ export const FlowPhase = Object.freeze({
   CAPTURING_LABEL: "CAPTURING_LABEL",
   REVIEWING_PRICE: "REVIEWING_PRICE",
   ENTERING_AMOUNT: "ENTERING_AMOUNT",
+  SHOPPING_LIST: "SHOPPING_LIST",
   SCANNING_QR: "SCANNING_QR",
   VERIFYING: "VERIFYING",
   RESULT_MATCH: "RESULT_MATCH",
@@ -34,7 +35,8 @@ export class FlowMachine {
       verified: null,
       confirmations: 0,
       candidates: [],
-      outcome: null
+      outcome: null,
+      shoppingList: []
     };
     this.listeners = [];
   }
@@ -61,12 +63,18 @@ export class FlowMachine {
       verified: null,
       confirmations: 0,
       candidates: [],
-      outcome: null
+      outcome: null,
+      shoppingList: []
     };
     this._notify();
   }
 
   start() {
+    this.phase = FlowPhase.CAPTURING_LABEL;
+    this._notify();
+  }
+
+  scanAnotherProduct() {
     this.phase = FlowPhase.CAPTURING_LABEL;
     this._notify();
   }
@@ -80,6 +88,89 @@ export class FlowMachine {
     this.ctx.candidates = candidates || [];
     this.phase = FlowPhase.REVIEWING_PRICE;
     this._notify();
+  }
+
+  addShoppingItem(item) {
+    if (!item) throw new Error("Item is required.");
+    const unitPricePaise = item.unitPricePaise;
+    if (!Number.isInteger(unitPricePaise) || unitPricePaise <= 0) {
+      throw new Error("Unit price must be a positive integer in paise.");
+    }
+    const quantity = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+    const subtotalPaise = unitPricePaise * quantity;
+    const id = item.id || `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const newItem = {
+      id,
+      productName: String(item.productName || "Product").trim(),
+      brand: item.brand ? String(item.brand).trim() : "",
+      detectedMrp: item.detectedMrp || "",
+      unitPricePaise,
+      quantity,
+      subtotalPaise
+    };
+
+    this.ctx.shoppingList.push(newItem);
+
+    // Invalidation rule: changing items/total discards prior QR verification
+    this.ctx.verified = null;
+    this.ctx.confirmations = 0;
+    this.ctx.intendedPaise = this.getShoppingTotalPaise();
+    this._notify();
+    return newItem;
+  }
+
+  removeShoppingItem(itemId) {
+    const idx = this.ctx.shoppingList.findIndex(i => i.id === itemId);
+    if (idx === -1) return false;
+    const removed = this.ctx.shoppingList.splice(idx, 1)[0];
+
+    // Invalidation rule: changing items/total discards prior QR verification
+    this.ctx.verified = null;
+    this.ctx.confirmations = 0;
+    this.ctx.intendedPaise = this.getShoppingTotalPaise();
+    this._notify();
+    return removed;
+  }
+
+  updateShoppingItemQuantity(itemId, quantity) {
+    const item = this.ctx.shoppingList.find(i => i.id === itemId);
+    if (!item) return false;
+    const q = Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+    item.quantity = q;
+    item.subtotalPaise = item.unitPricePaise * q;
+
+    // Invalidation rule: changing items/total discards prior QR verification
+    this.ctx.verified = null;
+    this.ctx.confirmations = 0;
+    this.ctx.intendedPaise = this.getShoppingTotalPaise();
+    this._notify();
+    return true;
+  }
+
+  clearShoppingList() {
+    this.ctx.shoppingList = [];
+    this.ctx.intendedPaise = null;
+    this.ctx.verified = null;
+    this.ctx.confirmations = 0;
+    this._notify();
+  }
+
+  getShoppingTotalPaise() {
+    return this.ctx.shoppingList.reduce((sum, item) => sum + (item.subtotalPaise || 0), 0);
+  }
+
+  viewShoppingList() {
+    this.phase = FlowPhase.SHOPPING_LIST;
+    this._notify();
+  }
+
+  proceedToPaymentFromShoppingList() {
+    const total = this.getShoppingTotalPaise();
+    if (total <= 0 || this.ctx.shoppingList.length === 0) {
+      throw new Error("Cannot proceed to payment with an empty shopping list.");
+    }
+    this.setIntendedAmount(total);
   }
 
   setIntendedAmount(paise) {
@@ -176,6 +267,7 @@ export class FlowMachine {
     this.ctx.confirmations = 0;
     this.ctx.verified = null;
     this.ctx.confirmedQrRaw = null;
+    this.ctx.shoppingList = [];
     this._notify();
   }
 

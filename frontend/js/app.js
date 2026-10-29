@@ -35,6 +35,7 @@ async function navigateTo(targetPageId, announcementText = null) {
     "welcome",
     "product-scan",
     "product-review",
+    "shopping-list",
     "qr-scan",
     "verification",
     "payment-consent",
@@ -50,13 +51,13 @@ async function navigateTo(targetPageId, announcementText = null) {
     }
   });
 
-  // Progress Bar
+  // Progress Bar (6 primary user stages)
   const stepIndex = pages.indexOf(targetPageId) + 1;
   const progressLabel = $("progress-label");
   const progressBar = $("progress-bar");
   if (progressLabel && progressBar) {
-    progressLabel.textContent = `Step ${Math.min(stepIndex, 5)} of 5`;
-    progressBar.style.width = `${Math.min(stepIndex * 20, 100)}%`;
+    progressLabel.textContent = `Step ${Math.min(stepIndex, 6)} of 6`;
+    progressBar.style.width = `${Math.min(stepIndex * 16.66, 100)}%`;
   }
 
   // Automatic Focus Management (TalkBack reads the screen heading)
@@ -74,12 +75,21 @@ async function navigateTo(targetPageId, announcementText = null) {
   }
 
   // Autonomous Behavior: Camera auto-starts immediately on scan screens
+  const mainShell = $("main-content");
+  if (targetPageId === "shopping-list") {
+    if (mainShell) mainShell.classList.add("shopping-list-active");
+    renderShoppingList();
+    setTimeout(() => $("shopping-list-title")?.focus(), 300);
+  } else {
+    if (mainShell) mainShell.classList.remove("shopping-list-active");
+  }
+
   if (targetPageId === "product-scan") {
     await autoStartProductCamera();
   } else if (targetPageId === "qr-scan") {
     await autoStartQrCamera();
   } else if (targetPageId === "product-review") {
-    setTimeout(() => $("confirm-details")?.focus(), 400);
+    setTimeout(() => $("btn-add-another")?.focus(), 400);
   }
 }
 
@@ -218,6 +228,7 @@ async function processLabelFile(file) {
     const rawMrpText = getField("printed_mrp");
     const cleanMrp = cleanPriceString(rawMrpText);
     const prodName = getField("product_name") || "Package";
+    const brandName = getField("brand") || "";
     const expDate = getField("expiry_date") || "Not visible";
 
     stopActiveCamera();
@@ -225,21 +236,45 @@ async function processLabelFile(file) {
     const priceDetectedCard = $("detected-price-card");
     const missingPriceCard = $("missing-price-card");
     const priceValueEl = $("detected-price-value");
-    const confirmTitle = $("confirm-zone-title");
-    const confirmSub = $("confirm-zone-sub");
-    const confirmBtn = $("confirm-details");
 
     const detailProdName = $("detail-product-name");
+    const detailBrand = $("detail-brand-name");
     const detailMrp = $("detail-printed-mrp");
     const detailExp = $("detail-expiry-date");
 
     if (detailProdName) detailProdName.textContent = prodName;
+    if (detailBrand) detailBrand.textContent = brandName || "Not visible";
     if (detailMrp) detailMrp.textContent = cleanMrp ? `₹${cleanMrp}` : (rawMrpText || "Not visible");
     if (detailExp) detailExp.textContent = expDate;
+
+    // Prefill unit price input and reset quantity
+    const priceInputEl = $("review-unit-price");
+    if (priceInputEl) {
+      priceInputEl.value = cleanMrp || "";
+    }
+    const qtyInputEl = $("review-quantity");
+    if (qtyInputEl) {
+      qtyInputEl.value = "1";
+    }
 
     const intendedInput = $("intended-amount");
     if (intendedInput) {
       intendedInput.value = cleanMrp || "";
+    }
+
+    // Initialize new review session token to prevent accidental duplicate additions
+    currentReviewSessionId = `session-${Date.now()}`;
+    currentReviewSessionAdded = false;
+
+    // View shopping list button state
+    const viewListBtn = $("btn-view-shopping-list");
+    const viewListSub = $("view-shopping-list-sub");
+    if (viewListBtn) {
+      const cartCount = flow.ctx.shoppingList.length;
+      viewListBtn.hidden = cartCount === 0;
+      if (viewListSub) {
+        viewListSub.textContent = `${cartCount} item${cartCount === 1 ? "" : "s"} in shopping list (Total ${formatPaise(flow.getShoppingTotalPaise())})`;
+      }
     }
 
     let readoutMsg = "";
@@ -247,23 +282,11 @@ async function processLabelFile(file) {
       if (priceDetectedCard) priceDetectedCard.hidden = false;
       if (missingPriceCard) missingPriceCard.hidden = true;
       if (priceValueEl) priceValueEl.textContent = `₹${cleanMrp}`;
-      if (confirmTitle) confirmTitle.textContent = `CONFIRM ₹${cleanMrp}`;
-      if (confirmSub) confirmSub.textContent = "Tap top half to proceed to QR scan, or say Confirm";
-      if (confirmBtn) {
-        confirmBtn.className = "giant-zone zone-confirm primary";
-        confirmBtn.dataset.action = "confirm";
-      }
-      readoutMsg = `Warning: Detected printed MRP of ${cleanMrp} rupees for ${prodName}. Tap top of screen to confirm, or say Confirm.`;
+      readoutMsg = `Warning: Detected printed MRP of ${cleanMrp} rupees for ${prodName}. Review details, then tap Add Another Product or Continue to Payment Verification.`;
     } else {
       if (priceDetectedCard) priceDetectedCard.hidden = true;
       if (missingPriceCard) missingPriceCard.hidden = false;
-      if (confirmTitle) confirmTitle.textContent = "📸 RE-SCAN PRODUCT";
-      if (confirmSub) confirmSub.textContent = "No price detected. Tap to open camera and scan again";
-      if (confirmBtn) {
-        confirmBtn.className = "giant-zone zone-secondary";
-        confirmBtn.dataset.action = "rescan";
-      }
-      readoutMsg = `Warning: Read product ${prodName}, but could not find a printed price on this label. Tap top of screen to re-scan.`;
+      readoutMsg = `Warning: Read product ${prodName}, but could not find a printed price on this label. Please enter the price below, or tap Re-Scan.`;
     }
 
     const leadEl = $("product-readout-lead");
@@ -274,11 +297,35 @@ async function processLabelFile(file) {
   } catch (err) {
     console.warn("OCR read error:", err);
     stopActiveCamera();
+    const priceDetectedCard = $("detected-price-card");
+    const missingPriceCard = $("missing-price-card");
+    const detailProdName = $("detail-product-name");
+    const detailBrand = $("detail-brand-name");
+    const detailMrp = $("detail-printed-mrp");
+    const priceInputEl = $("review-unit-price");
+
+    if (priceDetectedCard) priceDetectedCard.hidden = true;
+    if (missingPriceCard) {
+      missingPriceCard.hidden = false;
+      const desc = missingPriceCard.querySelector(".alert-desc");
+      if (desc) desc.textContent = `Label scan unavailable: ${err.message}. Please enter the price manually below.`;
+    }
+    if (detailProdName) detailProdName.textContent = "Package";
+    if (detailBrand) detailBrand.textContent = "Not visible";
+    if (detailMrp) detailMrp.textContent = "Not visible";
+    if (priceInputEl) {
+      priceInputEl.value = "";
+      setTimeout(() => priceInputEl.focus(), 300);
+    }
+
+    currentReviewSessionId = `session-${Date.now()}`;
+    currentReviewSessionAdded = false;
+
     if (statusEl) {
       statusEl.textContent = `Could not read label: ${err.message}.`;
     }
-    announceState(`Could not read label automatically: ${err.message}. Enter your intended payment amount.`, { soundCue: "alert" });
-    await navigateTo("product-review", "Could not read label automatically. Enter your intended payment amount.");
+    announceState(`Could not read label automatically: ${err.message}. Please enter the item price manually.`, { soundCue: "alert" });
+    await navigateTo("product-review", "Could not read label automatically. Please enter the price manually below.");
   } finally {
     isProcessingLabel = false;
     const fi = $("product-file-input");
@@ -415,10 +462,10 @@ function runVerification(rawQrText) {
     return;
   }
 
-  const intended = parseRupeesToPaise($("intended-amount")?.value);
-  if (!Number.isInteger(intended)) {
-    announceState(SpokenMessages.M08_INTENDED_REQUEST, { assertive: true, soundCue: "alert" });
-    navigateTo("product-review");
+  const intended = flow.ctx.intendedPaise || parseRupeesToPaise($("intended-amount")?.value);
+  if (!Number.isInteger(intended) || intended <= 0) {
+    announceState(SpokenMessages.M36_EMPTY_LIST_WARNING, { assertive: true, soundCue: "alert" });
+    navigateTo("shopping-list");
     return;
   }
 
@@ -453,7 +500,7 @@ function runVerification(rawQrText) {
 
   const payeeNameStr = parsed.payeeName || "Name not provided in QR";
   const qrAmountStr = Number.isInteger(parsed.amountPaise) ? formatPaise(parsed.amountPaise) : "No fixed amount";
-  const qrReadout = `Payee: ${payeeNameStr}. UPI ID: ${parsed.payeeVpa}. QR amount: ${qrAmountStr}.`;
+  const qrReadout = `Payee: ${payeeNameStr}. UPI ID: ${parsed.payeeVpa}. QR amount: ${qrAmountStr}. Total shopping amount: ${formatPaise(intended)}.`;
 
   if (summary) {
     summary.hidden = false;
@@ -461,7 +508,7 @@ function runVerification(rawQrText) {
       <dt>Payee</dt><dd>${payeeNameStr}</dd>
       <dt>UPI ID</dt><dd>${parsed.payeeVpa}</dd>
       <dt>QR Amount</dt><dd>${qrAmountStr}</dd>
-      <dt>Intended Amount</dt><dd>${formatPaise(intended)}</dd>
+      <dt>Total Shopping Amount</dt><dd>${formatPaise(intended)}</dd>
     `;
   }
 
@@ -498,6 +545,177 @@ function runVerification(rawQrText) {
   navigateTo("verification");
 }
 
+// Shopping List and Review Session State
+let isAddingProduct = false;
+let currentReviewSessionId = null;
+let currentReviewSessionAdded = false;
+let isClearConfirming = false;
+let clearConfirmTimer = null;
+
+async function handleSaveCurrentProduct(destination = "summary") {
+  if (isAddingProduct) return;
+  isAddingProduct = true;
+
+  try {
+    // Prevent accidental duplicate additions caused by double-taps or rapid handlers
+    if (currentReviewSessionAdded) {
+      if (destination === "scan") {
+        flow.scanAnotherProduct();
+        await navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+      } else {
+        renderShoppingList();
+        await navigateTo("shopping-list");
+      }
+      return;
+    }
+
+    const priceInput = $("review-unit-price")?.value?.trim();
+    const unitPricePaise = parseRupeesToPaise(priceInput);
+
+    if (!Number.isInteger(unitPricePaise) || unitPricePaise <= 0) {
+      announceState(SpokenMessages.M35_MISSING_PRICE_WARNING, { assertive: true, soundCue: "alert" });
+      $("review-unit-price")?.focus();
+      return;
+    }
+
+    const qtyInput = parseInt($("review-quantity")?.value, 10);
+    const qty = Number.isInteger(qtyInput) && qtyInput > 0 ? qtyInput : 1;
+    const prodName = $("detail-product-name")?.textContent?.trim() || "Product";
+    const brandEl = $("detail-brand-name");
+    const brandText = (brandEl && brandEl.textContent !== "Not visible") ? brandEl.textContent.trim() : "";
+
+    const added = flow.addShoppingItem({
+      productName: prodName,
+      brand: brandText,
+      detectedMrp: priceInput,
+      unitPricePaise,
+      quantity: qty
+    });
+
+    currentReviewSessionAdded = true;
+    const subtotalFormatted = formatPaise(added.subtotalPaise);
+    const totalFormatted = formatPaise(flow.getShoppingTotalPaise());
+
+    if (destination === "scan") {
+      announceState(SpokenMessages.M30_PRODUCT_ADDED(prodName, qty, subtotalFormatted, totalFormatted) + " Ready for next product.", { soundCue: "success" });
+      currentReviewSessionId = null;
+      currentReviewSessionAdded = false;
+      flow.scanAnotherProduct();
+      await navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+    } else {
+      announceState(SpokenMessages.M30_PRODUCT_ADDED(prodName, qty, subtotalFormatted, totalFormatted), { soundCue: "success" });
+      renderShoppingList();
+      await navigateTo("shopping-list");
+    }
+  } finally {
+    setTimeout(() => {
+      isAddingProduct = false;
+    }, 400);
+  }
+}
+
+function renderShoppingList() {
+  const tbody = $("shopping-list-tbody");
+  const emptyNotice = $("empty-list-notice");
+  const totalDisplay = $("shopping-total-display");
+  const proceedBtn = $("summary-proceed-pay-btn");
+
+  const items = flow.ctx.shoppingList;
+  const totalPaise = flow.getShoppingTotalPaise();
+  const totalFormatted = formatPaise(totalPaise);
+
+  if (totalDisplay) totalDisplay.textContent = totalFormatted;
+
+  if (tbody) {
+    tbody.innerHTML = "";
+    if (items.length === 0) {
+      if (emptyNotice) emptyNotice.hidden = false;
+      if (proceedBtn) {
+        proceedBtn.setAttribute("disabled", "true");
+        proceedBtn.style.opacity = "0.5";
+        proceedBtn.style.cursor = "not-allowed";
+        proceedBtn.textContent = "Continue to Pay";
+      }
+      return;
+    }
+
+    if (emptyNotice) emptyNotice.hidden = true;
+    if (proceedBtn) {
+      proceedBtn.removeAttribute("disabled");
+      proceedBtn.style.opacity = "1";
+      proceedBtn.style.cursor = "pointer";
+      proceedBtn.textContent = "Continue to Pay";
+    }
+
+    items.forEach((item, index) => {
+      const tr = document.createElement("tr");
+      const brandHtml = item.brand ? `<span class="sl-brand">(${item.brand})</span>` : "";
+      tr.innerHTML = `
+        <td class="sl-col-name">
+          <span class="sl-item-index">${index + 1}.</span>
+          <span class="sl-item-name">${item.productName} ${brandHtml}</span>
+        </td>
+        <td class="sl-col-qty">${item.quantity}</td>
+        <td class="sl-col-price">
+          <span class="sl-price-val">${formatPaise(item.subtotalPaise)}</span>
+          <button class="sl-remove-btn" type="button" data-id="${item.id}" aria-label="Remove ${item.productName} from list">✕</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    tbody.querySelectorAll(".sl-remove-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id;
+        const removed = flow.removeShoppingItem(id);
+        if (removed) {
+          const newTotalFormatted = formatPaise(flow.getShoppingTotalPaise());
+          announceState(SpokenMessages.M31_PRODUCT_REMOVED(removed.productName, newTotalFormatted), { soundCue: "step" });
+          renderShoppingList();
+        }
+      });
+    });
+  }
+}
+
+function setupClearListButton() {
+  const clearBtn = $("summary-clear-list-btn");
+  if (!clearBtn) return;
+  const clearTitle = $("clear-btn-title");
+  const clearSub = $("clear-btn-sub");
+
+  const resetClearButtonState = () => {
+    isClearConfirming = false;
+    clearTimeout(clearConfirmTimer);
+    if (clearBtn) clearBtn.classList.remove("confirm-clear-active");
+    if (clearTitle) clearTitle.textContent = "🗑 CLEAR SHOPPING LIST";
+    if (clearSub) clearSub.textContent = "Tap to clear all items (requires confirmation)";
+  };
+
+  clearBtn?.addEventListener("click", () => {
+    if (flow.ctx.shoppingList.length === 0) {
+      announceState("Your shopping list is already empty.", { soundCue: "step" });
+      return;
+    }
+
+    if (!isClearConfirming) {
+      isClearConfirming = true;
+      if (clearBtn) clearBtn.classList.add("confirm-clear-active");
+      if (clearTitle) clearTitle.textContent = "⚠️ CONFIRM CLEAR ALL ITEMS";
+      if (clearSub) clearSub.textContent = "Tap again to clear all products from shopping list";
+
+      announceState(SpokenMessages.M37_CONFIRM_CLEAR_LIST, { assertive: true, soundCue: "alert" });
+
+      clearConfirmTimer = setTimeout(resetClearButtonState, 7000);
+    } else {
+      resetClearButtonState();
+      flow.clearShoppingList();
+      renderShoppingList();
+      announceState(SpokenMessages.M33_LIST_CLEARED, { soundCue: "step" });
+    }
+  });
+}
+
 // Global Touch Gestures for Blind Navigation (2-finger tap = repeat)
 function initGlobalGestures() {
   window.addEventListener("touchstart", (e) => {
@@ -511,6 +729,7 @@ function initGlobalGestures() {
 // Event Bindings
 document.addEventListener("DOMContentLoaded", () => {
   initGlobalGestures();
+  setupClearListButton();
 
   // Continuous Speech Activation on First User Interaction (required by mobile browsers)
   const initSpeechOnGesture = () => {
@@ -525,6 +744,7 @@ document.addEventListener("DOMContentLoaded", () => {
     onStart: () => {
       const active = document.querySelector(".page.active")?.id;
       if (active === "welcome") $("start-button")?.click();
+      else if (active === "shopping-list") $("summary-add-another-btn")?.click();
     },
     onDirectQr: () => {
       const active = document.querySelector(".page.active")?.id;
@@ -534,7 +754,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const active = document.querySelector(".page.active")?.id;
       if (active === "welcome") $("start-button")?.click();
       else if (active === "product-scan") triggerProductCapture();
-      else if (active === "product-review") $("product-form")?.requestSubmit();
+      else if (active === "product-review") handleSaveCurrentProduct("summary");
+      else if (active === "shopping-list") $("summary-proceed-pay-btn")?.click();
       else if (active === "verification") $("payment-consent-button")?.click();
       else if (active === "payment-consent") $("upi-link")?.click();
       else if (active === "outcome-report") navigateTo("welcome", SpokenMessages.M01_WELCOME);
@@ -548,26 +769,17 @@ document.addEventListener("DOMContentLoaded", () => {
     onRepeat: () => speech.repeatLast(),
     onAmount: (rupees) => {
       const intendedInput = $("intended-amount");
-      if (intendedInput) {
-        intendedInput.value = rupees;
-        const priceDetectedCard = $("detected-price-card");
-        const missingPriceCard = $("missing-price-card");
-        const priceValueEl = $("detected-price-value");
-        const confirmTitle = $("confirm-zone-title");
-        const confirmSub = $("confirm-zone-sub");
-        const confirmBtn = $("confirm-details");
+      if (intendedInput) intendedInput.value = rupees;
+      const reviewPriceInput = $("review-unit-price");
+      if (reviewPriceInput) reviewPriceInput.value = rupees;
+      const priceDetectedCard = $("detected-price-card");
+      const missingPriceCard = $("missing-price-card");
+      const priceValueEl = $("detected-price-value");
 
-        if (priceDetectedCard) priceDetectedCard.hidden = false;
-        if (missingPriceCard) missingPriceCard.hidden = true;
-        if (priceValueEl) priceValueEl.textContent = `₹${rupees}`;
-        if (confirmTitle) confirmTitle.textContent = `CONFIRM ₹${rupees}`;
-        if (confirmSub) confirmSub.textContent = "Tap top half to proceed to QR scan, or say Confirm";
-        if (confirmBtn) {
-          confirmBtn.className = "giant-zone zone-confirm primary";
-          confirmBtn.dataset.action = "confirm";
-        }
-        announceState(`Amount set to ${rupees} rupees. Tap Confirm or say Confirm to proceed.`, { soundCue: "detected" });
-      }
+      if (priceDetectedCard) priceDetectedCard.hidden = false;
+      if (missingPriceCard) missingPriceCard.hidden = true;
+      if (priceValueEl) priceValueEl.textContent = `₹${rupees}`;
+      announceState(`Price set to ${rupees} rupees. Tap Add Another Product or Continue to Payment Verification.`, { soundCue: "detected" });
     }
   });
 
@@ -612,40 +824,55 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Step 3: Confirm Detected Amount or Re-scan
-  $("confirm-details")?.addEventListener("click", (e) => {
-    const action = $("confirm-details")?.dataset?.action;
-    if (action === "rescan") {
-      e.preventDefault();
-      flow.start();
-      navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+  // Step 3: Product Review Quantity Adjustments
+  $("qty-minus-btn")?.addEventListener("click", () => {
+    const qEl = $("review-quantity");
+    if (qEl) {
+      const cur = Math.max(1, (parseInt(qEl.value, 10) || 1) - 1);
+      qEl.value = cur;
+    }
+  });
+  $("qty-plus-btn")?.addEventListener("click", () => {
+    const qEl = $("review-quantity");
+    if (qEl) {
+      const cur = Math.min(99, (parseInt(qEl.value, 10) || 1) + 1);
+      qEl.value = cur;
     }
   });
 
-  $("product-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const action = $("confirm-details")?.dataset?.action;
-    if (action === "rescan") {
-      flow.start();
-      navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+  // Step 3: Product Review Actions
+  $("btn-add-another")?.addEventListener("click", () => handleSaveCurrentProduct("scan"));
+  $("btn-continue-summary")?.addEventListener("click", () => handleSaveCurrentProduct("summary"));
+  $("btn-view-shopping-list")?.addEventListener("click", () => navigateTo("shopping-list"));
+  $("btn-rescan-product")?.addEventListener("click", () => {
+    flow.scanAnotherProduct();
+    navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+  });
+
+  // Step 4: Shopping List Summary Actions
+  $("summary-proceed-pay-btn")?.addEventListener("click", () => {
+    const totalPaise = flow.getShoppingTotalPaise();
+    if (!Number.isInteger(totalPaise) || totalPaise <= 0 || flow.ctx.shoppingList.length === 0) {
+      announceState(SpokenMessages.M36_EMPTY_LIST_WARNING, { assertive: true, soundCue: "alert" });
       return;
     }
 
-    const paise = parseRupeesToPaise($("intended-amount").value);
-    if (!Number.isInteger(paise) || paise <= 0) {
-      announceState("No price detected on label. Tap Re-Scan to scan product again.", { assertive: true, soundCue: "alert" });
-      navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
-      return;
-    }
+    flow.proceedToPaymentFromShoppingList();
+    const formattedTotal = formatPaise(totalPaise);
+    if ($("intended-amount")) $("intended-amount").value = (totalPaise / 100).toFixed(2);
 
-    try {
-      flow.setIntendedAmount(paise);
-      const formatted = formatPaise(paise);
-      announceState(SpokenMessages.M09_INTENDED_READBACK(formatted), { soundCue: "step" });
-      navigateTo("qr-scan", SpokenMessages.M10_QR_GUIDANCE);
-    } catch (err) {
-      announceState(err.message, { assertive: true, soundCue: "alert" });
-    }
+    announceState(SpokenMessages.M34_PROCEED_TO_QR_WITH_TOTAL(formattedTotal), { soundCue: "step" });
+    navigateTo("qr-scan", SpokenMessages.M10_QR_GUIDANCE);
+  });
+
+  $("summary-add-another-btn")?.addEventListener("click", () => {
+    flow.scanAnotherProduct();
+    navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
+  });
+
+  $("summary-back-btn")?.addEventListener("click", () => {
+    flow.scanAnotherProduct();
+    navigateTo("product-scan", SpokenMessages.M04_CAPTURE_GUIDANCE);
   });
 
   // Manual QR input fallback button
