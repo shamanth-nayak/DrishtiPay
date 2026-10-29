@@ -941,7 +941,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const raw = flow.ctx.confirmedQrRaw;
       if (raw && raw.toLowerCase().startsWith("upi://pay?")) {
-        window.location.href = raw;
+        // Prepare properly formatted 2-decimal UPI URI (e.g. am=45.00)
+        let launchUri = raw;
+        try {
+          const url = new URL(raw);
+          const params = new URLSearchParams(url.search);
+          const paise = flow.ctx.intendedPaise;
+          if (Number.isInteger(paise) && paise > 0) {
+            params.set("am", (paise / 100).toFixed(2));
+          } else if (params.has("am")) {
+            const p = parseRupeesToPaise(params.get("am"));
+            if (Number.isInteger(p)) params.set("am", (p / 100).toFixed(2));
+          }
+          params.set("cu", "INR");
+          if (params.has("pa")) params.set("pa", params.get("pa").trim());
+          if (params.has("pn")) params.set("pn", params.get("pn").trim());
+          launchUri = `upi://pay?${params.toString()}`;
+        } catch {}
+
+        window.location.href = launchUri;
       }
 
       setTimeout(() => {
@@ -949,6 +967,27 @@ document.addEventListener("DOMContentLoaded", () => {
       }, 1200);
     } catch (err) {
       announceState(SpokenMessages.M24_UPI_NOT_OPENED, { assertive: true, soundCue: "alert" });
+    }
+  });
+
+  // Copy UPI ID & Amount button
+  $("btn-copy-upi")?.addEventListener("click", () => {
+    if (!latestQr) return;
+    const vpa = latestQr.payeeVpa;
+    const paise = flow.ctx.intendedPaise || latestQr.amountPaise;
+    const amtStr = Number.isInteger(paise) ? (paise / 100).toFixed(2) : "";
+    const copyText = amtStr ? `${vpa} (₹${amtStr})` : vpa;
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(vpa).then(() => {
+        announceState(`UPI ID ${vpa} copied to clipboard. Open your UPI app and paste to pay directly.`, { soundCue: "detected" });
+        const sub = $("copy-upi-sub");
+        if (sub) sub.textContent = `Copied ${vpa}! Paste in UPI app`;
+      }).catch(() => {
+        announceState(`Payee UPI ID is ${vpa}.`, { soundCue: "step" });
+      });
+    } else {
+      announceState(`Payee UPI ID is ${vpa}.`, { soundCue: "step" });
     }
   });
 
